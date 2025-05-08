@@ -2,50 +2,61 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const Dropdown = ({ label, selectedValue, onValueChange, items }) => {
+/**
+ * Props
+ *  - label           (string)  field label shown above the button
+ *  - selectedValue   (string)  currently‑selected item
+ *  - onValueChange   (fn)      callback(newValue)
+ *  - items           (string[]) list of selectable items
+ *  - containerStyle  (object)  optional extra style (e.g., zIndex layering)
+ */
+const Dropdown = ({
+  label,
+  selectedValue,
+  onValueChange,
+  items,
+  containerStyle,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const toggleDropdown = () => {
-    setIsOpen(!isOpen);
-  };
-
-  const handleSelect = (value) => {
+  const toggle = () => setIsOpen(o => !o);
+  const select = value => {
     onValueChange(value);
     setIsOpen(false);
   };
 
   return (
-    <View style={styles.container}>
-      {label && <Text style={styles.label}>{label}</Text>}
-      
-      <TouchableOpacity 
-        style={styles.dropdownButton} 
-        onPress={toggleDropdown}
+    <View style={[styles.container, containerStyle]}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+
+      <TouchableOpacity
+        style={styles.dropdownButton}
+        onPress={toggle}
         activeOpacity={0.8}
       >
         <Text style={styles.selectedText}>{selectedValue}</Text>
-        <Ionicons 
-          name={isOpen ? "chevron-up" : "chevron-down"} 
-          size={20} 
-          color="#1A1E23" 
+        <Ionicons
+          name={isOpen ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color="#1A1E23"
         />
       </TouchableOpacity>
-      
+
       {isOpen && (
         <View style={styles.optionsContainer}>
-          {items.map((item) => (
+          {items.map(item => (
             <TouchableOpacity
               key={item}
               style={[
                 styles.optionItem,
-                selectedValue === item && styles.selectedOption
+                selectedValue === item && styles.selectedOption,
               ]}
-              onPress={() => handleSelect(item)}
+              onPress={() => select(item)}
             >
-              <Text 
+              <Text
                 style={[
                   styles.optionText,
-                  selectedValue === item && styles.selectedOptionText
+                  selectedValue === item && styles.selectedOptionText,
                 ]}
               >
                 {item}
@@ -64,8 +75,6 @@ const Dropdown = ({ label, selectedValue, onValueChange, items }) => {
 const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
-    position: 'relative',
-    zIndex: 1,
   },
   label: {
     fontSize: 16,
@@ -86,11 +95,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1A1E23',
   },
+  /* menu now sits inline, pushing content below */
   optionsContainer: {
-    position: 'absolute',
-    top: 76,
-    left: 0,
-    right: 0,
+    marginTop: 4,
     backgroundColor: '#FFFFFF',
     borderRadius: 8,
     borderWidth: 1,
@@ -100,7 +107,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    zIndex: 2,
   },
   optionItem: {
     padding: 12,
@@ -110,9 +116,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  selectedOption: {
-    backgroundColor: '#F9FAF9',
-  },
+  selectedOption: { backgroundColor: '#F9FAF9' },
   optionText: {
     fontSize: 16,
     color: '#1A1E23',

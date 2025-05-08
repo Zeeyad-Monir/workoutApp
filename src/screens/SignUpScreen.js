@@ -1,3 +1,4 @@
+// src/screens/SignUpScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -7,12 +8,11 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
 } from 'react-native';
+import { auth, db } from '../firebase';
 import {
   createUserWithEmailAndPassword,
   updateProfile,
-  auth,
-  db,
-} from '../firebase';                   // updateProfile is re‑exported below
+} from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 
 export default function SignUpScreen({ navigation }) {
@@ -28,20 +28,32 @@ export default function SignUpScreen({ navigation }) {
       return;
     }
     try {
-      // 1) create Auth account
-      const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass1);
+      /* 1) Create Auth account */
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        email.trim().toLowerCase(),
+        pass1
+      );
 
-      // 2) save username on Auth profile
+      /* 2) Save username on Auth profile */
       await updateProfile(cred.user, { displayName: username.trim() });
 
-      // 3) create initial Firestore user doc
+      /* 3) users/{uid} profile document */
       await setDoc(doc(db, 'users', cred.user.uid), {
         username: username.trim(),
         handle: username.trim().replace(/\s+/g, '').toLowerCase(),
+        email: email.trim().toLowerCase(),
         favouriteWorkout: '',
         wins: 0,
         totals: 0,
       });
+
+      /* 4) reverse lookup emails/{email} → { uid }  */
+      await setDoc(doc(db, 'emails', email.trim().toLowerCase()), {
+        uid: cred.user.uid,
+      });
+
+      /* you’re now signed in; navigation will flip to the HomeStack */
     } catch (e) {
       setError(e.message);
     }
@@ -110,14 +122,14 @@ export default function SignUpScreen({ navigation }) {
   );
 }
 
-/* styling identical to before */
+/* ---- styles unchanged ---- */
 const styles = StyleSheet.create({
   root:      { flex: 1, backgroundColor: '#2E3439', alignItems: 'center' },
   logo:      { fontSize: 52, fontWeight: '900', color: '#A4D65E', marginTop: 80 },
   tagline:   { fontSize: 20, color: '#FFF', marginTop: 12, marginBottom: 60 },
   form:      { width: '80%' },
   input:     {
-    backgroundColor: '#FFF', borderRadius: 12, padding: 16,
+    backgroundColor: '#FFF', borderRadius: 8, padding: 12,
     fontSize: 16, marginBottom: 20,
   },
   btn:       {

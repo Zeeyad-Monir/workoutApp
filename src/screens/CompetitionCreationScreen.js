@@ -16,6 +16,9 @@ import {
   addDoc,
   doc,
   getDoc,
+  getDocs,
+  query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
@@ -41,43 +44,65 @@ const unitOptions = {
 export default function CompetitionCreationScreen({ navigation }) {
   const { user } = useContext(AuthContext);
 
+  /* ---------- form state ---------- */
   const [name, setName]           = useState('');
   const [description, setDesc]    = useState('');
   const [startDate, setStart]     = useState(new Date());
   const [endDate, setEnd]         = useState(new Date(Date.now() + 7 * 864e5));
-
   const [activities, setActs]     = useState([
     { type: 'Walking', unit: 'Kilometre', points: '1' },
   ]);
-
   const [dailyCap, setDailyCap]   = useState('');
-  const [inviteEmail, setInvite]  = useState('');
-  const [invites, setInvites]     = useState([]);
 
-  /* ---------- helpers ---------- */
+  /* ---------- invite state ---------- */
+  const [inviteEmail, setInvite]  = useState('');
+  /** invitedFriends = [{ uid, email }] */
+  const [invitedFriends, setInvitedFriends] = useState([]);
+
+  /* ---------- helper functions ---------- */
   const updateAct = (idx, patch) =>
     setActs(a => a.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
 
-  const addActivity   = () =>
+  const addActivity = () =>
     setActs([...activities, { type: 'Walking', unit: 'Kilometre', points: '1' }]);
-  const removeAct     = idx => setActs(a => a.filter((_, i) => i !== idx));
+
+  const removeAct = idx => setActs(a => a.filter((_, i) => i !== idx));
+
+  /** Look up a user by email in Firestore */
+  const findUserByEmail = async email => {
+    // 1) try users collection
+    const q = query(collection(db, 'users'), where('email', '==', email));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const docSnap = snap.docs[0];
+      return { uid: docSnap.id, email };
+    }
+    // 2) fallback: reverse‑lookup map (emails/{email} -> { uid })
+    const reverse = await getDoc(doc(db, 'emails', email));
+    if (reverse.exists()) return { uid: reverse.data().uid, email };
+    return null;
+  };
 
   const addInvite = async () => {
     const email = inviteEmail.trim().toLowerCase();
     if (!email) return;
     try {
-      const look = await getDoc(doc(db, 'emails', email));
-      if (!look.exists()) throw new Error('User not found');
-      const uid = look.data().uid;
-      if (uid === user.uid) throw new Error('That’s you!');
-      if (invites.includes(uid)) throw new Error('Already invited');
-      setInvites([...invites, uid]);
+      const friend = await findUserByEmail(email);
+      if (!friend) throw new Error('No user with that email');
+      if (friend.uid === user.uid) throw new Error('That’s you!');
+      if (invitedFriends.find(f => f.uid === friend.uid))
+        throw new Error('Already invited');
+      setInvitedFriends([...invitedFriends, friend]);
       setInvite('');
     } catch (e) {
       Alert.alert('Invite error', e.message);
     }
   };
 
+  const removeInvite = uid =>
+    setInvitedFriends(invitedFriends.filter(f => f.uid !== uid));
+
+  /* ---------- create competition ---------- */
   const handleCreate = async () => {
     if (!name.trim()) {
       Alert.alert('Validation', 'Competition name is required');
@@ -90,7 +115,7 @@ export default function CompetitionCreationScreen({ navigation }) {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         ownerId: user.uid,
-        participants: [user.uid, ...invites],
+        participants: [user.uid, ...invitedFriends.map(f => f.uid)],
         rules: activities.map(a => ({
           type: a.type,
           unit: a.unit,
@@ -109,21 +134,12 @@ export default function CompetitionCreationScreen({ navigation }) {
   /* ---------- UI ---------- */
   return (
     <View style={styles.container}>
-      <Header
-        title="Create Competition"
-        showBackButton
-        onBackPress={() => navigation.goBack()}
-      />
+      <Header title="Create Competition" showBackButton onBackPress={navigation.goBack} />
 
       <ScrollView style={styles.formContainer} nestedScrollEnabled>
-        {/* Details */}
+        {/* -- details -- */}
         <Text style={styles.sectionTitle}>Competition Details</Text>
-        <FormInput
-          label="Competition Name"
-          value={name}
-          onChangeText={setName}
-          placeholder="Enter competition name"
-        />
+        <FormInput label="Competition Name" value={name} onChangeText={setName} />
 
         <View style={styles.dateRow}>
           <View style={styles.dateField}>
@@ -138,17 +154,14 @@ export default function CompetitionCreationScreen({ navigation }) {
         <TextInput
           style={styles.textArea}
           multiline
-          numberOfLines={5}
           value={description}
           onChangeText={setDesc}
           placeholder="Describe your competition..."
-          placeholderTextColor="#999"
         />
 
-        {/* Activity rules */}
+        {/* -- activity rules -- */}
         <Text style={styles.sectionTitle}>Activity Rules</Text>
         {activities.map((act, idx) => {
-          /* Higher rows get a higher zIndex block so their menu is under labels but above rows */
           const baseZ = 1000 - idx * 10;
           return (
             <View key={idx} style={[styles.activityCard, { zIndex: baseZ }]}>
@@ -159,23 +172,19 @@ export default function CompetitionCreationScreen({ navigation }) {
                 items={workoutTypes}
                 containerStyle={{ zIndex: baseZ + 2 }}
               />
-
               <Dropdown
                 label="Scored Unit"
                 selectedValue={act.unit}
-                onValueChange={u => updateAct(idx, { unit: u })}
+                onValueChange={unit => updateAct(idx, { unit })}
                 items={unitOptions[act.type]}
                 containerStyle={{ zIndex: baseZ + 1 }}
               />
-
               <FormInput
                 label={`Points per ${act.unit}`}
                 keyboardType="numeric"
                 value={act.points}
                 onChangeText={p => updateAct(idx, { points: p })}
-                placeholder="e.g. 1"
               />
-
               {activities.length > 1 && (
                 <TouchableOpacity onPress={() => removeAct(idx)} style={styles.trashBtn}>
                   <Ionicons name="trash" size={20} color="#FF6B6B" />
@@ -184,13 +193,12 @@ export default function CompetitionCreationScreen({ navigation }) {
             </View>
           );
         })}
-
-        <TouchableOpacity style={styles.addParticipantButton} onPress={addActivity}>
+        <TouchableOpacity style={styles.addBtn} onPress={addActivity}>
           <Ionicons name="add-circle" size={40} color="#A4D65E" />
-          <Text style={styles.addParticipantText}>Add Activity Rule</Text>
+          <Text style={styles.addText}>Add Activity Rule</Text>
         </TouchableOpacity>
 
-        {/* Daily limit */}
+        {/* -- daily cap -- */}
         <FormInput
           label="Daily Point Limit (optional)"
           value={dailyCap}
@@ -199,13 +207,12 @@ export default function CompetitionCreationScreen({ navigation }) {
           placeholder="Leave blank for uncapped"
         />
 
-        {/* Invites */}
+        {/* -- invites -- */}
         <Text style={styles.sectionTitle}>Invite Participants</Text>
         <View style={styles.inviteRow}>
           <TextInput
             style={[styles.inputInvite, { flex: 1 }]}
             placeholder="Friend's email"
-            placeholderTextColor="#999"
             value={inviteEmail}
             onChangeText={setInvite}
             autoCapitalize="none"
@@ -216,16 +223,13 @@ export default function CompetitionCreationScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {invites.map(uid => (
-          <View key={uid} style={styles.participant}>
+        {invitedFriends.map(f => (
+          <View key={f.uid} style={styles.participant}>
             <View style={styles.participantIcon}>
               <Ionicons name="person-circle" size={40} color="#A4D65E" />
             </View>
-            <Text style={styles.participantName}>{uid}</Text>
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => setInvites(invites.filter(i => i !== uid))}
-            >
+            <Text style={styles.participantName}>{f.email}</Text>
+            <TouchableOpacity onPress={() => removeInvite(f.uid)} style={styles.removeButton}>
               <Ionicons name="close-circle" size={24} color="#FF6B6B" />
             </TouchableOpacity>
           </View>
@@ -242,16 +246,25 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F8F8' },
   formContainer: { flex: 1, padding: 16 },
   sectionTitle: {
-    fontSize: 18, fontWeight: 'bold', color: '#1A1E23',
-    marginTop: 20, marginBottom: 15,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1A1E23',
+    marginTop: 20,
+    marginBottom: 15,
   },
   dateRow: { flexDirection: 'row', justifyContent: 'space-between' },
   dateField: { width: '48%' },
   label: { fontSize: 16, color: '#1A1E23', marginBottom: 8, marginTop: 16 },
   textArea: {
-    backgroundColor: '#FFFFFF', borderRadius: 8, padding: 12,
-    fontSize: 16, color: '#1A1E23', textAlignVertical: 'top',
-    minHeight: 120, borderWidth: 1, borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#1A1E23',
+    textAlignVertical: 'top',
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   activityCard: {
     backgroundColor: '#FFFFFF',
@@ -262,20 +275,36 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   trashBtn: { alignSelf: 'flex-end', marginTop: 4 },
-  addParticipantButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FFFFFF', borderRadius: 8, padding: 10, marginBottom: 20,
-    borderStyle: 'dashed', borderWidth: 1, borderColor: '#A4D65E',
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 20,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: '#A4D65E',
   },
-  addParticipantText: { fontSize: 16, color: '#A4D65E', marginLeft: 10 },
+  addText: { fontSize: 16, color: '#A4D65E', marginLeft: 10 },
   inviteRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   inputInvite: {
-    backgroundColor: '#FFFFFF', borderRadius: 8, padding: 12,
-    fontSize: 16, color: '#1A1E23', borderWidth: 1, borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#1A1E23',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   participant: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#FFFFFF', borderRadius: 8, padding: 10, marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
   },
   participantIcon: { marginRight: 10 },
   participantName: { flex: 1, fontSize: 16, color: '#1A1E23' },
