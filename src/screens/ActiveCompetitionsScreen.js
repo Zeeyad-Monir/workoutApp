@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +21,10 @@ import {
   where,
   onSnapshot,
   or,
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
 
@@ -28,14 +33,15 @@ export default function ActiveCompetitionsScreen({ navigation }) {
   const { user } = useContext(AuthContext);
 
   /* ---------------- live Firestore data ---------------- */
-  const [competitions, setCompetitions] = useState([]);
+  const [activeCompetitions, setActiveCompetitions] = useState([]);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
 
-    // competitions where user is owner OR is in participants array
-    const q = query(
+    // Active competitions where user is owner OR is in participants array
+    const activeQuery = query(
       collection(db, 'competitions'),
       or(
         where('ownerId', '==', user.uid),
@@ -43,25 +49,88 @@ export default function ActiveCompetitionsScreen({ navigation }) {
       )
     );
 
-    const unsub = onSnapshot(q, snap => {
+    // Pending invitations where user is in pendingParticipants array
+    const pendingQuery = query(
+      collection(db, 'competitions'),
+      where('pendingParticipants', 'array-contains', user.uid)
+    );
+
+    const activeUnsub = onSnapshot(activeQuery, snap => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setCompetitions(data);
+      setActiveCompetitions(data);
       setLoading(false);
     });
 
-    return unsub;
+    const pendingUnsub = onSnapshot(pendingQuery, snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPendingInvitations(data);
+    });
+
+    return () => {
+      activeUnsub();
+      pendingUnsub();
+    };
   }, [user]);
 
   /* ---------------- search filter ---------------------- */
   const [queryText, setQueryText] = useState('');
 
-  const filtered = useMemo(
+  const filteredActive = useMemo(
     () =>
-      competitions.filter(c =>
+      activeCompetitions.filter(c =>
         c.name?.toLowerCase().includes(queryText.toLowerCase().trim())
       ),
-    [queryText, competitions]
+    [queryText, activeCompetitions]
   );
+
+  const filteredPending = useMemo(
+    () =>
+      pendingInvitations.filter(c =>
+        c.name?.toLowerCase().includes(queryText.toLowerCase().trim())
+      ),
+    [queryText, pendingInvitations]
+  );
+
+  /* ---------------- invitation handlers ---------------- */
+  const handleAcceptInvite = async (competitionId) => {
+    try {
+      const compRef = doc(db, 'competitions', competitionId);
+      await updateDoc(compRef, {
+        participants: arrayUnion(user.uid),
+        pendingParticipants: arrayRemove(user.uid),
+      });
+      Alert.alert('Success', 'You have joined the competition!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to accept invitation');
+      console.error(error);
+    }
+  };
+
+  const handleDeclineInvite = async (competitionId) => {
+    Alert.alert(
+      'Decline Invitation',
+      'Are you sure you want to decline this invitation?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Decline',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const compRef = doc(db, 'competitions', competitionId);
+              await updateDoc(compRef, {
+                pendingParticipants: arrayRemove(user.uid),
+              });
+              Alert.alert('Success', 'Invitation declined');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to decline invitation');
+              console.error(error);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <>
@@ -97,13 +166,54 @@ export default function ActiveCompetitionsScreen({ navigation }) {
             <Text style={styles.loadingText}>Loading competitions…</Text>
           )}
 
-          {!loading && filtered.length === 0 && (
+          {/* Pending Invitations Section */}
+          {filteredPending.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Pending Invitations</Text>
+              {filteredPending.map(comp => (
+                <View key={comp.id} style={styles.inviteCard}>
+                  <Ionicons
+                    name="mail"
+                    size={90}
+                    color="rgba(255,255,255,0.08)"
+                    style={styles.bgIcon}
+                  />
+
+                  <View style={styles.inviteContent}>
+                    <Text style={styles.cardTitle}>{comp.name}</Text>
+                    <Text style={styles.inviteText}>You've been invited to join!</Text>
+                    <View style={styles.inviteActions}>
+                      <TouchableOpacity
+                        style={[styles.inviteButton, styles.acceptButton]}
+                        onPress={() => handleAcceptInvite(comp.id)}
+                      >
+                        <Text style={styles.acceptButtonText}>Accept</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.inviteButton, styles.declineButton]}
+                        onPress={() => handleDeclineInvite(comp.id)}
+                      >
+                        <Text style={styles.declineButtonText}>Decline</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Active Competitions Section */}
+          {(filteredActive.length > 0 || filteredPending.length > 0) && (
+            <Text style={styles.sectionTitle}>Your Competitions</Text>
+          )}
+
+          {!loading && filteredActive.length === 0 && filteredPending.length === 0 && (
             <Text style={styles.loadingText}>
-              No competitions yet — create one or wait for an invite!
+              No competitions yet — create one or wait for an invite!
             </Text>
           )}
 
-          {filtered.map(comp => (
+          {filteredActive.map(comp => (
             <TouchableOpacity
               key={comp.id}
               style={styles.card}
@@ -161,6 +271,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1E23',
+    marginBottom: 16,
+    marginTop: 8,
+  },
+
   card: {
     backgroundColor: '#262626',
     borderRadius: 16,
@@ -168,10 +286,68 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     overflow: 'hidden',
   },
+
+  inviteCard: {
+    backgroundColor: '#A4D65E',
+    borderRadius: 16,
+    minHeight: 160,
+    marginBottom: 24,
+    overflow: 'hidden',
+  },
+
   bgIcon: { position: 'absolute', right: 12, bottom: 12 },
 
   cardContent: { flex: 1, padding: 20, justifyContent: 'space-between' },
+  
+  inviteContent: { 
+    flex: 1, 
+    padding: 20, 
+    justifyContent: 'space-between' 
+  },
+
   cardTitle: { fontSize: 24, fontWeight: '700', color: '#fff' },
+
+  inviteText: { 
+    fontSize: 16, 
+    color: '#1A1E23', 
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  inviteActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  inviteButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+
+  acceptButton: {
+    backgroundColor: '#1A1E23',
+  },
+
+  declineButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: '#1A1E23',
+  },
+
+  acceptButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
+  declineButtonText: {
+    color: '#1A1E23',
+    fontWeight: '600',
+    fontSize: 16,
+  },
 
   seeMoreRow: { flexDirection: 'row', alignItems: 'center' },
   seeMoreText: { fontSize: 16, fontWeight: '700', color: '#A4D65E' },

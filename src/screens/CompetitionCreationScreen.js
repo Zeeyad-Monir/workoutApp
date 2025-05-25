@@ -89,7 +89,7 @@ export default function CompetitionCreationScreen({ navigation }) {
     try {
       const friend = await findUserByEmail(email);
       if (!friend) throw new Error('No user with that email');
-      if (friend.uid === user.uid) throw new Error('That’s you!');
+      if (friend.uid === user.uid) throw new Error("That's you!");
       if (invitedFriends.find(f => f.uid === friend.uid))
         throw new Error('Already invited');
       setInvitedFriends([...invitedFriends, friend]);
@@ -115,7 +115,8 @@ export default function CompetitionCreationScreen({ navigation }) {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         ownerId: user.uid,
-        participants: [user.uid, ...invitedFriends.map(f => f.uid)],
+        participants: [user.uid], // Only the owner is an active participant initially
+        pendingParticipants: invitedFriends.map(f => f.uid), // Invited users go to pending
         rules: activities.map(a => ({
           type: a.type,
           unit: a.unit,
