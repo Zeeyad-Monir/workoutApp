@@ -23,6 +23,7 @@ import {
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
 
+// All activities can now use any of these units
 const workoutTypes = [
   'Walking',
   'Running',
@@ -30,15 +31,51 @@ const workoutTypes = [
   'Cardio Session',
   'Elliptical',
   'Weightlifting',
+  'Swimming',
+  'Rowing',
+  'Yoga',
+  'HIIT',
+  'Other',
 ];
 
-const unitOptions = {
-  Walking: ['Kilometre', 'Mile', 'Step'],
-  Running: ['Kilometre', 'Mile'],
-  Cycling: ['Kilometre', 'Mile'],
-  'Cardio Session': ['Minute'],
-  Elliptical: ['Minute', 'Calorie'],
-  Weightlifting: ['Rep', 'Minute', 'Calorie'],
+// Universal units available for all activities
+const universalUnits = [
+  // Time-based
+  'Minute',
+  'Hour',
+  // Distance-based
+  'Kilometre',
+  'Mile',
+  'Meter',
+  'Yard',
+  // Count-based
+  'Step',
+  'Rep',
+  'Set',
+  // Energy-based
+  'Calorie',
+  // Other
+  'Session',
+  'Class',
+];
+
+// Helper to get appropriate placeholder text for points input
+const getPointsPlaceholder = (unit) => {
+  const placeholders = {
+    'Minute': 'e.g., 10 minutes = 1 point',
+    'Hour': 'e.g., 1 hour = 5 points',
+    'Kilometre': 'e.g., 1 km = 1 point',
+    'Mile': 'e.g., 1 mile = 2 points',
+    'Meter': 'e.g., 100 meters = 1 point',
+    'Yard': 'e.g., 100 yards = 1 point',
+    'Step': 'e.g., 500 steps = 1 point',
+    'Rep': 'e.g., 10 reps = 1 point',
+    'Set': 'e.g., 1 set = 2 points',
+    'Calorie': 'e.g., 50 calories = 1 point',
+    'Session': 'e.g., 1 session = 10 points',
+    'Class': 'e.g., 1 class = 15 points',
+  };
+  return placeholders[unit] || 'Enter points value';
 };
 
 export default function CompetitionCreationScreen({ navigation }) {
@@ -50,7 +87,7 @@ export default function CompetitionCreationScreen({ navigation }) {
   const [startDate, setStart]     = useState(new Date());
   const [endDate, setEnd]         = useState(new Date(Date.now() + 7 * 864e5));
   const [activities, setActs]     = useState([
-    { type: 'Walking', unit: 'Kilometre', points: '1' },
+    { type: 'Walking', unit: 'Minute', points: '0.1' }, // 10 minutes = 1 point
   ]);
   const [dailyCap, setDailyCap]   = useState('');
 
@@ -64,7 +101,7 @@ export default function CompetitionCreationScreen({ navigation }) {
     setActs(a => a.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
 
   const addActivity = () =>
-    setActs([...activities, { type: 'Walking', unit: 'Kilometre', points: '1' }]);
+    setActs([...activities, { type: 'Walking', unit: 'Minute', points: '0.1' }]);
 
   const removeAct = idx => setActs(a => a.filter((_, i) => i !== idx));
 
@@ -108,6 +145,14 @@ export default function CompetitionCreationScreen({ navigation }) {
       Alert.alert('Validation', 'Competition name is required');
       return;
     }
+    
+    // Validate that all activities have points values
+    const invalidActivities = activities.filter(a => !a.points || parseFloat(a.points) <= 0);
+    if (invalidActivities.length > 0) {
+      Alert.alert('Validation', 'Please set points for all activities');
+      return;
+    }
+    
     try {
       await addDoc(collection(db, 'competitions'), {
         name: name.trim(),
@@ -130,6 +175,26 @@ export default function CompetitionCreationScreen({ navigation }) {
     } catch (e) {
       Alert.alert('Error', e.message);
     }
+  };
+
+  // Helper to format the points label based on unit
+  const getPointsLabel = (unit) => {
+    const singularUnit = unit.toLowerCase();
+    const labels = {
+      'minute': 'Points per minute',
+      'hour': 'Points per hour',
+      'kilometre': 'Points per km',
+      'mile': 'Points per mile',
+      'meter': 'Points per meter',
+      'yard': 'Points per yard',
+      'step': 'Points per step',
+      'rep': 'Points per rep',
+      'set': 'Points per set',
+      'calorie': 'Points per calorie',
+      'session': 'Points per session',
+      'class': 'Points per class',
+    };
+    return labels[singularUnit] || `Points per ${unit}`;
   };
 
   /* ---------- UI ---------- */
@@ -162,29 +227,34 @@ export default function CompetitionCreationScreen({ navigation }) {
 
         {/* -- activity rules -- */}
         <Text style={styles.sectionTitle}>Activity Rules</Text>
+        <Text style={styles.sectionSubtext}>
+          Set up custom point values for any workout type and unit combination
+        </Text>
+        
         {activities.map((act, idx) => {
           const baseZ = 1000 - idx * 10;
           return (
             <View key={idx} style={[styles.activityCard, { zIndex: baseZ }]}>
               <Dropdown
-                label="Workout Type"
+                label="Activity Type"
                 selectedValue={act.type}
-                onValueChange={val => updateAct(idx, { type: val, unit: unitOptions[val][0] })}
+                onValueChange={val => updateAct(idx, { type: val })}
                 items={workoutTypes}
                 containerStyle={{ zIndex: baseZ + 2 }}
               />
               <Dropdown
-                label="Scored Unit"
+                label="Measurement Unit"
                 selectedValue={act.unit}
                 onValueChange={unit => updateAct(idx, { unit })}
-                items={unitOptions[act.type]}
+                items={universalUnits}
                 containerStyle={{ zIndex: baseZ + 1 }}
               />
               <FormInput
-                label={`Points per ${act.unit}`}
+                label={getPointsLabel(act.unit)}
                 keyboardType="numeric"
                 value={act.points}
                 onChangeText={p => updateAct(idx, { points: p })}
+                placeholder={getPointsPlaceholder(act.unit)}
               />
               {activities.length > 1 && (
                 <TouchableOpacity onPress={() => removeAct(idx)} style={styles.trashBtn}>
@@ -194,6 +264,7 @@ export default function CompetitionCreationScreen({ navigation }) {
             </View>
           );
         })}
+        
         <TouchableOpacity style={styles.addBtn} onPress={addActivity}>
           <Ionicons name="add-circle" size={40} color="#A4D65E" />
           <Text style={styles.addText}>Add Activity Rule</Text>
@@ -205,7 +276,7 @@ export default function CompetitionCreationScreen({ navigation }) {
           value={dailyCap}
           onChangeText={setDailyCap}
           keyboardType="numeric"
-          placeholder="Leave blank for uncapped"
+          placeholder="Leave blank for unlimited daily points"
         />
 
         {/* -- invites -- */}
@@ -251,6 +322,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1A1E23',
     marginTop: 20,
+    marginBottom: 8,
+  },
+  sectionSubtext: {
+    fontSize: 14,
+    color: '#666',
     marginBottom: 15,
   },
   dateRow: { flexDirection: 'row', justifyContent: 'space-between' },

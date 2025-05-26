@@ -1,24 +1,111 @@
-import React from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
+import { db } from '../firebase';
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  getDoc,
+} from 'firebase/firestore';
+import { AuthContext } from '../contexts/AuthContext';
 
-const LeaderboardScreen = ({ navigation }) => {
-  const topUsers = [
-    { id: 2, name: 'Noah', points: 40, position: 2 },
-    { id: 1, name: 'Zeeyad', points: 43, position: 1 },
-    { id: 3, name: 'Bryce', points: 38, position: 3 },
-  ];
+const LeaderboardScreen = ({ route, navigation }) => {
+  const { competition } = route.params;
+  const { user } = useContext(AuthContext);
   
-  const rankings = [
-    { id: 4, name: 'Marsha Fisher', points: 36, position: 4 },
-    { id: 5, name: 'Juanita Cormier', points: 35, position: 5 },
-    { id: 6, name: 'You', points: 34, position: 6, isCurrentUser: true },
-    { id: 7, name: 'Tamara Schmidt', points: 33, position: 7 },
-    { id: 8, name: 'Ricardo Veum', points: 32, position: 8 },
-    { id: 9, name: 'Gary Sanford', points: 31, position: 9 },
-    { id: 10, name: 'Becky Bartell', points: 30, position: 10 },
-  ];
+  const [rankings, setRankings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!competition?.id) return;
+
+    // Listen to submissions for this competition
+    const submissionsQuery = query(
+      collection(db, 'submissions'),
+      where('competitionId', '==', competition.id)
+    );
+
+    const unsubscribe = onSnapshot(submissionsQuery, async (snapshot) => {
+      try {
+        // Aggregate points by user
+        const pointsByUser = {};
+        
+        snapshot.docs.forEach(doc => {
+          const submission = doc.data();
+          const userId = submission.userId;
+          
+          if (!pointsByUser[userId]) {
+            pointsByUser[userId] = 0;
+          }
+          pointsByUser[userId] += submission.points || 0;
+        });
+
+        // Fetch user data for all participants
+        const userDataPromises = competition.participants.map(async (uid) => {
+          try {
+            const userDoc = await getDoc(doc(db, 'users', uid));
+            const userData = userDoc.exists() ? userDoc.data() : {};
+            
+            return {
+              id: uid,
+              name: userData.username || 'Unknown User',
+              points: pointsByUser[uid] || 0,
+              isCurrentUser: uid === user.uid,
+            };
+          } catch (error) {
+            console.error('Error fetching user:', error);
+            return {
+              id: uid,
+              name: 'Unknown User',
+              points: pointsByUser[uid] || 0,
+              isCurrentUser: uid === user.uid,
+            };
+          }
+        });
+
+        const usersWithPoints = await Promise.all(userDataPromises);
+        
+        // Sort by points (descending) and assign positions
+        const sortedRankings = usersWithPoints
+          .sort((a, b) => b.points - a.points)
+          .map((user, index) => ({
+            ...user,
+            position: index + 1,
+          }));
+
+        setRankings(sortedRankings);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error processing leaderboard:', error);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [competition?.id, competition?.participants, user.uid]);
+
+  // Separate top 3 from the rest
+  const topThree = rankings.slice(0, 3);
+  const restOfRankings = rankings.slice(3);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header 
+          title="Leaderboard" 
+          showBackButton={true} 
+          onBackPress={() => navigation.goBack()}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading rankings...</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -33,76 +120,88 @@ const LeaderboardScreen = ({ navigation }) => {
           <Ionicons name="trophy" size={40} color="#A4D65E" />
         </View>
         
-        <View style={styles.topThreeContainer}>
-          {topUsers.sort((a, b) => a.position - b.position).map(user => (
-            <View 
-              key={user.id} 
-              style={[
-                styles.topUserContainer, 
-                user.position === 1 && styles.firstPlaceContainer,
-                user.position === 2 && styles.secondPlaceContainer,
-                user.position === 3 && styles.thirdPlaceContainer,
-              ]}
-            >
-              <View style={styles.userImageContainer}>
-                <Ionicons 
-                  name="person-circle" 
-                  size={user.position === 1 ? 70 : 60} 
-                  color={user.position === 1 ? "#FFD700" : "#FFFFFF"} 
-                />
-                {user.position === 1 && (
-                  <View style={styles.crownContainer}>
-                    <Ionicons name="crown" size={20} color="#FFD700" />
+        {topThree.length > 0 && (
+          <View style={styles.topThreeContainer}>
+            {/* Reorder for podium display: 2nd, 1st, 3rd */}
+            {[1, 0, 2].map(index => {
+              const user = topThree[index];
+              if (!user) return <View key={index} style={{ flex: 1 }} />;
+              
+              return (
+                <View 
+                  key={user.id} 
+                  style={[
+                    styles.topUserContainer, 
+                    user.position === 1 && styles.firstPlaceContainer,
+                    user.position === 2 && styles.secondPlaceContainer,
+                    user.position === 3 && styles.thirdPlaceContainer,
+                  ]}
+                >
+                  <View style={styles.userImageContainer}>
+                    <Ionicons 
+                      name="person-circle" 
+                      size={user.position === 1 ? 70 : 60} 
+                      color={user.position === 1 ? "#FFD700" : "#FFFFFF"} 
+                    />
+                    {user.position === 1 && (
+                      <View style={styles.crownContainer}>
+                        <Ionicons name="crown" size={20} color="#FFD700" />
+                      </View>
+                    )}
+                    <View style={[
+                      styles.positionBadge,
+                      user.position === 1 && styles.firstPlaceBadge,
+                      user.position === 2 && styles.secondPlaceBadge,
+                      user.position === 3 && styles.thirdPlaceBadge,
+                    ]}>
+                      <Text style={styles.positionText}>{user.position}</Text>
+                    </View>
                   </View>
-                )}
-                <View style={[
-                  styles.positionBadge,
-                  user.position === 1 && styles.firstPlaceBadge,
-                  user.position === 2 && styles.secondPlaceBadge,
-                  user.position === 3 && styles.thirdPlaceBadge,
-                ]}>
-                  <Text style={styles.positionText}>{user.position}</Text>
+                  <Text style={styles.userName}>{user.name}</Text>
+                  <View style={styles.pointsContainer}>
+                    <Ionicons name="star" size={14} color="#A4D65E" />
+                    <Text style={styles.pointsText}>{user.points.toFixed(0)} pts</Text>
+                  </View>
                 </View>
-              </View>
-              <Text style={styles.userName}>{user.name}</Text>
-              <View style={styles.pointsContainer}>
-                <Ionicons name="star" size={14} color="#A4D65E" />
-                <Text style={styles.pointsText}>{user.points} pts</Text>
-              </View>
-            </View>
-          ))}
-        </View>
+              );
+            })}
+          </View>
+        )}
       </View>
       
       <View style={styles.rankingsContainer}>
         <Text style={styles.rankingsTitle}>Rankings</Text>
         <ScrollView style={styles.rankingsList}>
-          {rankings.map(user => (
-            <View 
-              key={user.id} 
-              style={[
-                styles.rankingItem, 
-                user.isCurrentUser && styles.currentUserRanking
-              ]}
-            >
-              <Text style={styles.rankingPosition}>{user.position}</Text>
-              <View style={styles.rankingUserImageContainer}>
-                <Ionicons name="person-circle" size={36} color="#777" />
+          {rankings.length === 0 ? (
+            <Text style={styles.emptyText}>No submissions yet. Be the first to earn points!</Text>
+          ) : (
+            restOfRankings.map(user => (
+              <View 
+                key={user.id} 
+                style={[
+                  styles.rankingItem, 
+                  user.isCurrentUser && styles.currentUserRanking
+                ]}
+              >
+                <Text style={styles.rankingPosition}>{user.position}</Text>
+                <View style={styles.rankingUserImageContainer}>
+                  <Ionicons name="person-circle" size={36} color="#777" />
+                </View>
+                <Text style={[
+                  styles.rankingUserName,
+                  user.isCurrentUser && styles.currentUserText
+                ]}>
+                  {user.isCurrentUser ? 'You' : user.name}
+                </Text>
+                <Text style={[
+                  styles.rankingPoints,
+                  user.isCurrentUser && styles.currentUserText
+                ]}>
+                  {user.points.toFixed(0)} pts
+                </Text>
               </View>
-              <Text style={[
-                styles.rankingUserName,
-                user.isCurrentUser && styles.currentUserText
-              ]}>
-                {user.name}
-              </Text>
-              <Text style={[
-                styles.rankingPoints,
-                user.isCurrentUser && styles.currentUserText
-              ]}>
-                {user.points} pts
-              </Text>
-            </View>
-          ))}
+            ))
+          )}
         </ScrollView>
       </View>
     </View>
@@ -113,6 +212,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F8F8',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 20,
+    fontSize: 16,
   },
   podiumContainer: {
     backgroundColor: '#1A1E23',
@@ -132,18 +246,16 @@ const styles = StyleSheet.create({
   topUserContainer: {
     alignItems: 'center',
     marginHorizontal: 5,
+    flex: 1,
   },
   firstPlaceContainer: {
     marginBottom: 0,
-    flex: 1.2,
   },
   secondPlaceContainer: {
     marginBottom: 15,
-    flex: 1,
   },
   thirdPlaceContainer: {
     marginBottom: 25,
-    flex: 1,
   },
   userImageContainer: {
     position: 'relative',

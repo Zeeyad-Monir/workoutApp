@@ -1,41 +1,92 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
+import { db } from '../firebase';
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  doc,
+  getDoc,
+} from 'firebase/firestore';
+import { AuthContext } from '../contexts/AuthContext';
 
 const CompetitionDetailsScreen = ({ route, navigation }) => {
   const [activeTab, setActiveTab] = useState('all');
-  const { competition } = route.params || { name: "Bryce's Competition" };
+  const { competition } = route.params;
+  const { user } = useContext(AuthContext);
   
-  const workouts = [
-    { 
-      id: 1, 
-      userName: "Zeeyad", 
-      activityType: "5K Run", 
-      duration: 30, 
-      calories: 300, 
-      points: 3,
-      isNotification: true
-    },
-    { 
-      id: 2, 
-      userName: "Bryce", 
-      activityType: "3K Run", 
-      duration: 20, 
-      calories: 200, 
-      points: 2,
-      isNotification: false
-    },
-    { 
-      id: 3, 
-      userName: "Noah", 
-      activityType: "10K Run", 
-      duration: 60, 
-      calories: 600, 
-      points: 6,
-      isNotification: false
-    }
-  ];
+  const [workouts, setWorkouts] = useState([]);
+  const [users, setUsers] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  // Reset to 'all' tab when returning from submission
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      // Reset to 'all' tab when screen comes into focus
+      setActiveTab('all');
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
+    if (!competition?.id) return;
+
+    // Fetch user data for all participants
+    const fetchUsers = async () => {
+      const userMap = {};
+      for (const uid of competition.participants || []) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', uid));
+          if (userDoc.exists()) {
+            userMap[uid] = userDoc.data();
+          }
+        } catch (error) {
+          console.error('Error fetching user:', error);
+        }
+      }
+      setUsers(userMap);
+    };
+
+    fetchUsers();
+
+    // Listen to submissions for this competition
+    const submissionsQuery = query(
+      collection(db, 'submissions'),
+      where('competitionId', '==', competition.id)
+      // Temporarily removed orderBy until index is created
+      // orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(submissionsQuery, (snapshot) => {
+      const submissionsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Mark as notification if it's a new submission from someone else
+        isNotification: doc.data().userId !== user.uid && 
+                       doc.data().createdAt?.toDate() > new Date(Date.now() - 3600000) // Last hour
+      }));
+      setWorkouts(submissionsData);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [competition?.id, user.uid]);
+
+  const formatWorkoutDisplay = (workout) => {
+    const userName = users[workout.userId]?.username || 'Unknown User';
+    const activityDisplay = `${workout.distance || workout.duration} ${workout.unit} ${workout.activityType}`;
+    
+    return {
+      ...workout,
+      userName,
+      activityDisplay,
+    };
+  };
 
   return (
     <View style={styles.container}>
@@ -55,54 +106,68 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
         
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'leaderboard' && styles.activeTab]} 
-          onPress={() => navigation.navigate('Leaderboard')}
+          onPress={() => {
+            setActiveTab('leaderboard');
+            navigation.navigate('Leaderboard', { competition });
+          }}
         >
           <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.activeTabText]}>Leaderboard</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'add' && styles.activeTab]} 
-          onPress={() => navigation.navigate('SubmissionForm')}
+          onPress={() => {
+            navigation.navigate('SubmissionForm', { competition });
+          }}
         >
           <Text style={[styles.tabText, activeTab === 'add' && styles.activeTabText]}>Add</Text>
         </TouchableOpacity>
       </View>
       
       <ScrollView style={styles.workoutsContainer}>
-        {workouts.map(workout => (
-          <TouchableOpacity key={workout.id} style={styles.workoutCard}>
-            <View style={styles.cardBackground}>
-              <Ionicons name="fitness" size={60} color="rgba(255,255,255,0.2)" style={styles.backgroundIcon} />
-            </View>
-            <View style={styles.cardContent}>
-              <View style={styles.workoutInfo}>
-                <Text style={styles.workoutType}>{workout.activityType}</Text>
-                <View style={styles.workoutDetails}>
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailIcon}>•</Text>
-                    <Text style={styles.detailText}>{workout.duration} Minutes</Text>
-                  </View>
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailIcon}>♦</Text>
-                    <Text style={styles.detailText}>{workout.calories} Kcal</Text>
-                  </View>
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailIcon}>♦</Text>
-                    <Text style={styles.detailText}>{workout.points} Points</Text>
-                  </View>
+        {loading ? (
+          <Text style={styles.loadingText}>Loading workouts...</Text>
+        ) : workouts.length === 0 ? (
+          <Text style={styles.emptyText}>No workouts yet. Be the first to add one!</Text>
+        ) : (
+          workouts.map(workout => {
+            const formatted = formatWorkoutDisplay(workout);
+            return (
+              <TouchableOpacity key={workout.id} style={styles.workoutCard}>
+                <View style={styles.cardBackground}>
+                  <Ionicons name="fitness" size={60} color="rgba(255,255,255,0.2)" style={styles.backgroundIcon} />
                 </View>
-              </View>
-              <View style={styles.userLabel}>
-                <Text style={styles.userLabelText}>{workout.userName}'s Workout</Text>
-              </View>
-              {workout.isNotification && (
-                <View style={styles.notificationIcon}>
-                  <Text style={styles.notificationText}>!</Text>
+                <View style={styles.cardContent}>
+                  <View style={styles.workoutInfo}>
+                    <Text style={styles.workoutType}>{formatted.activityDisplay}</Text>
+                    <View style={styles.workoutDetails}>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailIcon}>•</Text>
+                        <Text style={styles.detailText}>{workout.duration} Minutes</Text>
+                      </View>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailIcon}>♦</Text>
+                        <Text style={styles.detailText}>{workout.calories} Kcal</Text>
+                      </View>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailIcon}>★</Text>
+                        <Text style={styles.detailText}>{workout.points} Points</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.userLabel}>
+                    <Text style={styles.userLabelText}>{formatted.userName}'s Workout</Text>
+                  </View>
+                  {workout.isNotification && (
+                    <View style={styles.notificationIcon}>
+                      <Text style={styles.notificationText}>!</Text>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
-          </TouchableOpacity>
-        ))}
+              </TouchableOpacity>
+            );
+          })
+        )}
       </ScrollView>
     </View>
   );
@@ -140,6 +205,18 @@ const styles = StyleSheet.create({
   workoutsContainer: {
     flex: 1,
     paddingHorizontal: 16,
+  },
+  loadingText: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 40,
+    fontSize: 16,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 40,
+    fontSize: 16,
   },
   workoutCard: {
     height: 120,
