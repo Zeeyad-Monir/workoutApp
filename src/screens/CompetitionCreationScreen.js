@@ -65,18 +65,69 @@ export default function CompetitionCreationScreen({ navigation }) {
   const { user } = useContext(AuthContext);
 
   /* ---------- form state ---------- */
-  const [name, setName]           = useState('');
-  const [description, setDesc]    = useState('');
-  const [startDate, setStart]     = useState(new Date());
-  const [endDate, setEnd]         = useState(new Date(Date.now() + 7*864e5));
-  const [dailyCap, setDailyCap]   = useState('');
+  const [name, setName] = useState('');
+  const [description, setDesc] = useState('');
+  
+  // Initialize dates with proper times
+  const now = new Date();
+  const [startDate, setStart] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0)); // 9 AM today
+  const [startTime, setStartTime] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0));
+  const [endDate, setEnd] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59)); // 11:59 PM next week
+  const [endTime, setEndTime] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59));
+  
+  const [dailyCap, setDailyCap] = useState('');
   // Each activity now has: type, unit, pointsPerUnit, unitsPerPoint
-  const [activities, setActs]   = useState([
+  const [activities, setActs] = useState([
     { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
   ]);
 
-  const [inviteEmail, setInvite]  = useState('');
+  const [inviteEmail, setInvite] = useState('');
   const [invitedFriends, setInvitedFriends] = useState([]);
+
+  /* ---------- date/time helpers ---------- */
+  const handleStartDateChange = (selectedDate) => {
+    setStart(selectedDate);
+    // Update time part while keeping the date
+    const updatedStartTime = new Date(selectedDate);
+    updatedStartTime.setHours(startTime.getHours(), startTime.getMinutes());
+    setStartTime(updatedStartTime);
+  };
+
+  const handleStartTimeChange = (selectedTime) => {
+    setStartTime(selectedTime);
+    // Update the start date with new time
+    const updatedStartDate = new Date(startDate);
+    updatedStartDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
+    setStart(updatedStartDate);
+  };
+
+  const handleEndDateChange = (selectedDate) => {
+    setEnd(selectedDate);
+    // Update time part while keeping the date
+    const updatedEndTime = new Date(selectedDate);
+    updatedEndTime.setHours(endTime.getHours(), endTime.getMinutes());
+    setEndTime(updatedEndTime);
+  };
+
+  const handleEndTimeChange = (selectedTime) => {
+    setEndTime(selectedTime);
+    // Update the end date with new time
+    const updatedEndDate = new Date(endDate);
+    updatedEndDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
+    setEnd(updatedEndDate);
+  };
+
+  const getCombinedStartDateTime = () => {
+    const combined = new Date(startDate);
+    combined.setHours(startTime.getHours(), startTime.getMinutes(), 0, 0);
+    return combined;
+  };
+
+  const getCombinedEndDateTime = () => {
+    const combined = new Date(endDate);
+    combined.setHours(endTime.getHours(), endTime.getMinutes(), 59, 999);
+    return combined;
+  };
 
   /* ---------- helpers ---------- */
   const updateAct = (idx, patch) =>
@@ -120,16 +171,26 @@ export default function CompetitionCreationScreen({ navigation }) {
       Alert.alert('Validation','Competition name is required');
       return;
     }
+    
+    const finalStartDateTime = getCombinedStartDateTime();
+    const finalEndDateTime = getCombinedEndDateTime();
+    
+    if (finalEndDateTime <= finalStartDateTime) {
+      Alert.alert('Validation','End date/time must be after start date/time');
+      return;
+    }
+    
     if (activities.some(a=>!a.points || parseFloat(a.points)<=0 || !a.unitsPerPoint || parseFloat(a.unitsPerPoint)<=0)) {
       Alert.alert('Validation','Please set valid points & units-per-point for all activities');
       return;
     }
+    
     try {
       await addDoc(collection(db,'competitions'), {
         name: name.trim(),
         description: description.trim(),
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        startDate: finalStartDateTime.toISOString(),
+        endDate: finalEndDateTime.toISOString(),
         ownerId: user.uid,
         participants: [user.uid],
         pendingParticipants: invitedFriends.map(f=>f.uid),
@@ -160,10 +221,54 @@ export default function CompetitionCreationScreen({ navigation }) {
       >
         <Text style={styles.sectionTitle}>Competition Details</Text>
         <FormInput label="Competition Name" value={name} onChangeText={setName}/>
-        <View style={styles.dateRow}>
-          <DatePicker label="Start Date" date={startDate} onDateChange={setStart} style={styles.dateField}/>
-          <DatePicker label="End Date"   date={endDate}   onDateChange={setEnd}   style={styles.dateField}/>
+        
+        <Text style={styles.sectionTitle}>Schedule</Text>
+        <View style={styles.dateTimeRow}>
+          <View style={styles.dateTimeField}>
+            <DatePicker 
+              label="Start Date" 
+              date={startDate} 
+              onDateChange={handleStartDateChange}
+              mode="date"
+              minimumDate={new Date()}
+            />
+          </View>
+          <View style={styles.dateTimeField}>
+            <DatePicker 
+              label="Start Time" 
+              date={startTime} 
+              onDateChange={handleStartTimeChange}
+              mode="time"
+            />
+          </View>
         </View>
+        
+        <View style={styles.dateTimeRow}>
+          <View style={styles.dateTimeField}>
+            <DatePicker 
+              label="End Date" 
+              date={endDate} 
+              onDateChange={handleEndDateChange}
+              mode="date"
+              minimumDate={startDate}
+            />
+          </View>
+          <View style={styles.dateTimeField}>
+            <DatePicker 
+              label="End Time" 
+              date={endTime} 
+              onDateChange={handleEndTimeChange}
+              mode="time"
+            />
+          </View>
+        </View>
+        
+        <View style={styles.durationPreview}>
+          <Text style={styles.durationText}>
+            Duration: {Math.ceil((getCombinedEndDateTime() - getCombinedStartDateTime()) / (1000 * 60 * 60 * 24))} days
+          </Text>
+        </View>
+        
         <Text style={styles.label}>Description</Text>
         <TextInput style={styles.textArea} multiline value={description} onChangeText={setDesc} placeholder="Describe your competition..."/>
 
@@ -260,11 +365,13 @@ export default function CompetitionCreationScreen({ navigation }) {
 const styles = StyleSheet.create({
   container:       {flex:1,backgroundColor:'#F8F8F8'},
   formContainer:   {flex:1,padding:16},
-  scrollContent:   {paddingBottom:40}, // Added extra bottom padding
+  scrollContent:   {paddingBottom:40},
   sectionTitle:    {fontSize:18,fontWeight:'bold',color:'#1A1E23',marginTop:20,marginBottom:8},
   sectionSubtext:  {fontSize:14,color:'#666',marginBottom:15},
-  dateRow:         {flexDirection:'row',justifyContent:'space-between'},
-  dateField:       {width:'48%'},
+  dateTimeRow:     {flexDirection:'row',justifyContent:'space-between',gap:10},
+  dateTimeField:   {flex:1},
+  durationPreview: {backgroundColor:'#E8F5E8',borderRadius:8,padding:12,marginBottom:16},
+  durationText:    {fontSize:14,color:'#1A1E23',textAlign:'center',fontWeight:'500'},
   label:           {fontSize:16,color:'#1A1E23',marginBottom:8,marginTop:16},
   textArea:        {backgroundColor:'#FFF',borderRadius:8,padding:12,fontSize:16,color:'#1A1E23',minHeight:120,borderWidth:1,borderColor:'#E5E7EB'},
   activityCard:    {backgroundColor:'#FFF',borderRadius:8,padding:12,marginBottom:16,borderWidth:1,borderColor:'#E5E7EB'},
@@ -275,5 +382,5 @@ const styles = StyleSheet.create({
   inputInvite:     {backgroundColor:'#FFF',borderRadius:8,padding:12,borderWidth:1,borderColor:'#E5E7EB'},
   participant:     {flexDirection:'row',alignItems:'center',marginVertical:8},
   participantName: {flex:1,marginLeft:12,color:'#1A1E23'},
-  createButton:    {marginTop:20,marginBottom:10}, // Added bottom margin to the button
+  createButton:    {marginTop:20,marginBottom:20},
 });

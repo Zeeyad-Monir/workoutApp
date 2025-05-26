@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Header } from '../components';
+import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 
 import { db } from '../firebase';
@@ -35,6 +35,7 @@ export default function ActiveCompetitionsScreen({ navigation }) {
   /* ---------------- live Firestore data ---------------- */
   const [activeCompetitions, setActiveCompetitions] = useState([]);
   const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [removedCompetitions, setRemovedCompetitions] = useState(new Set()); // Track locally removed competitions
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,7 +57,11 @@ export default function ActiveCompetitionsScreen({ navigation }) {
     );
 
     const activeUnsub = onSnapshot(activeQuery, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        // Filter out competitions where user is not in participants (unless they're the owner)
+        .filter(comp => comp.ownerId === user.uid || comp.participants?.includes(user.uid))
+        // Also filter out locally removed competitions
+        .filter(comp => !removedCompetitions.has(comp.id));
       setActiveCompetitions(data);
       setLoading(false);
     });
@@ -70,7 +75,80 @@ export default function ActiveCompetitionsScreen({ navigation }) {
       activeUnsub();
       pendingUnsub();
     };
-  }, [user]);
+  }, [user, removedCompetitions]); // Add removedCompetitions to dependency array
+
+  /* ---------------- competition status helpers ---------- */
+  const isCompetitionCompleted = (competition) => {
+    const now = new Date();
+    const endDate = new Date(competition.endDate);
+    return now > endDate;
+  };
+
+  const isCompetitionActive = (competition) => {
+    const now = new Date();
+    const startDate = new Date(competition.startDate);
+    const endDate = new Date(competition.endDate);
+    return now >= startDate && now <= endDate;
+  };
+
+  const isCompetitionUpcoming = (competition) => {
+    const now = new Date();
+    const startDate = new Date(competition.startDate);
+    return now < startDate;
+  };
+
+  const getCompetitionStatus = (competition) => {
+    if (isCompetitionCompleted(competition)) return 'completed';
+    if (isCompetitionActive(competition)) return 'active';
+    if (isCompetitionUpcoming(competition)) return 'upcoming';
+    return 'unknown';
+  };
+
+  const getCompetitionStatusText = (competition) => {
+    const status = getCompetitionStatus(competition);
+    switch (status) {
+      case 'completed':
+        return 'Completed';
+      case 'active':
+        return 'Active';
+      case 'upcoming':
+        return 'Starting Soon';
+      default:
+        return '';
+    }
+  };
+
+  const getTimeRemaining = (competition) => {
+    const now = new Date();
+    const endDate = new Date(competition.endDate);
+    const startDate = new Date(competition.startDate);
+    
+    if (isCompetitionCompleted(competition)) {
+      return 'Completed';
+    }
+    
+    if (isCompetitionUpcoming(competition)) {
+      const diff = startDate - now;
+      const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+      return `Starts in ${days} day${days !== 1 ? 's' : ''}`;
+    }
+    
+    if (isCompetitionActive(competition)) {
+      const diff = endDate - now;
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      
+      if (days > 0) {
+        return `${days} day${days !== 1 ? 's' : ''} left`;
+      } else if (hours > 0) {
+        return `${hours} hour${hours !== 1 ? 's' : ''} left`;
+      } else {
+        return 'Ending soon';
+      }
+    }
+    
+    return '';
+  };
 
   /* ---------------- search filter ---------------------- */
   const [queryText, setQueryText] = useState('');
@@ -78,7 +156,17 @@ export default function ActiveCompetitionsScreen({ navigation }) {
   const filteredActive = useMemo(
     () =>
       activeCompetitions.filter(c =>
-        c.name?.toLowerCase().includes(queryText.toLowerCase().trim())
+        c.name?.toLowerCase().includes(queryText.toLowerCase().trim()) &&
+        !isCompetitionCompleted(c)
+      ),
+    [queryText, activeCompetitions]
+  );
+
+  const filteredCompleted = useMemo(
+    () =>
+      activeCompetitions.filter(c =>
+        c.name?.toLowerCase().includes(queryText.toLowerCase().trim()) &&
+        isCompetitionCompleted(c)
       ),
     [queryText, activeCompetitions]
   );
@@ -130,6 +218,67 @@ export default function ActiveCompetitionsScreen({ navigation }) {
         },
       ]
     );
+  };
+
+  /* ---------------- leave competition handler ---------- */
+  const handleLeaveCompetition = (competition) => {
+    Alert.alert(
+      'Leave Competition',
+      'Are you sure you want to leave this competition?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Immediately remove from local state for instant UI update
+              setRemovedCompetitions(prev => new Set([...prev, competition.id]));
+              
+              const compRef = doc(db, 'competitions', competition.id);
+              
+              // Handle both owner and participant cases
+              if (competition.ownerId === user.uid) {
+                // If user is the owner, remove them from both owner and participants
+                await updateDoc(compRef, {
+                  participants: arrayRemove(user.uid),
+                  ownerId: null, // Or you could transfer ownership, but for now we'll just remove them
+                });
+              } else {
+                // If user is just a participant, remove them from participants
+                await updateDoc(compRef, {
+                  participants: arrayRemove(user.uid),
+                });
+              }
+              
+              Alert.alert('Success', 'You have left the competition');
+            } catch (error) {
+              // If there's an error, restore the competition to the UI
+              setRemovedCompetitions(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(competition.id);
+                return newSet;
+              });
+              Alert.alert('Error', 'Failed to leave competition');
+              console.error(error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /* ---------------- navigation handlers ---------------- */
+  const handleCompetitionPress = (competition) => {
+    const status = getCompetitionStatus(competition);
+    
+    if (status === 'completed') {
+      // Navigate directly to leaderboard for completed competitions
+      navigation.navigate('Leaderboard', { competition });
+    } else {
+      // Navigate to competition details for active/upcoming competitions
+      navigation.navigate('CompetitionDetails', { competition });
+    }
   };
 
   return (
@@ -203,41 +352,124 @@ export default function ActiveCompetitionsScreen({ navigation }) {
           )}
 
           {/* Active Competitions Section */}
-          {(filteredActive.length > 0 || filteredPending.length > 0) && (
-            <Text style={styles.sectionTitle}>Your Competitions</Text>
+          {filteredActive.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Active Competitions</Text>
+              {filteredActive.map(comp => {
+                const status = getCompetitionStatus(comp);
+                
+                return (
+                  <TouchableOpacity
+                    key={comp.id}
+                    style={styles.card}
+                    activeOpacity={0.85}
+                    onPress={() => handleCompetitionPress(comp)}
+                  >
+                    <Ionicons
+                      name="fitness"
+                      size={90}
+                      color="rgba(255,255,255,0.08)"
+                      style={styles.bgIcon}
+                    />
+
+                    <View style={styles.cardContent}>
+                      <View style={styles.cardHeader}>
+                        <Text style={styles.cardTitle}>
+                          {comp.name}
+                        </Text>
+                        <View style={[
+                          styles.statusBadge,
+                          status === 'active' && styles.activeBadge,
+                          status === 'upcoming' && styles.upcomingBadge,
+                        ]}>
+                          <Text style={styles.statusText}>
+                            {getCompetitionStatusText(comp)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.timeRemainingText}>
+                        {getTimeRemaining(comp)}
+                      </Text>
+
+                      <View style={styles.seeMoreRow}>
+                        <Text style={styles.seeMoreText}>See more</Text>
+                        <Text style={styles.seeMoreArrow}>›</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
           )}
 
-          {!loading && filteredActive.length === 0 && filteredPending.length === 0 && (
+          {/* Completed Competitions Section */}
+          {filteredCompleted.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Completed Competitions</Text>
+              {filteredCompleted.map(comp => {
+                return (
+                  <TouchableOpacity
+                    key={comp.id}
+                    style={[styles.card, styles.completedCard]}
+                    activeOpacity={0.85}
+                    onPress={() => handleCompetitionPress(comp)}
+                  >
+                    <Ionicons
+                      name="trophy"
+                      size={90}
+                      color="rgba(255,255,255,0.08)"
+                      style={styles.bgIcon}
+                    />
+
+                    {/* Leave Competition Button */}
+                    <TouchableOpacity
+                      style={styles.leaveButton}
+                      onPress={(e) => {
+                        e.stopPropagation(); // Prevent card press
+                        handleLeaveCompetition(comp);
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={styles.leaveButtonText}>✕</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.cardContent}>
+                      <View style={styles.cardHeader}>
+                        <Text style={[styles.cardTitle, styles.completedCardTitle]}>
+                          {comp.name}
+                        </Text>
+                        <View style={[styles.statusBadge, styles.completedBadge]}>
+                          <Text style={[styles.statusText, styles.completedStatusText]}>
+                            Completed
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={[styles.timeRemainingText, styles.completedTimeText]}>
+                        {getTimeRemaining(comp)}
+                      </Text>
+
+                      <View style={styles.viewResultsContainer}>
+                        <Button
+                          title="View Results"
+                          style={styles.viewResultsButton}
+                          textStyle={styles.viewResultsButtonText}
+                          onPress={() => navigation.navigate('Leaderboard', { competition: comp })}
+                        />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          )}
+
+          {!loading && filteredActive.length === 0 && filteredCompleted.length === 0 && filteredPending.length === 0 && (
             <Text style={styles.loadingText}>
               No competitions yet — create one or wait for an invite!
             </Text>
           )}
-
-          {filteredActive.map(comp => (
-            <TouchableOpacity
-              key={comp.id}
-              style={styles.card}
-              activeOpacity={0.85}
-              onPress={() =>
-                navigation.navigate('CompetitionDetails', { competition: comp })
-              }
-            >
-              <Ionicons
-                name="fitness"
-                size={90}
-                color="rgba(255,255,255,0.08)"
-                style={styles.bgIcon}
-              />
-
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>{comp.name}</Text>
-                <View style={styles.seeMoreRow}>
-                  <Text style={styles.seeMoreText}>See more</Text>
-                  <Text style={styles.seeMoreArrow}>›</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
         </ScrollView>
       </SafeAreaView>
     </>
@@ -282,9 +514,15 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#262626',
     borderRadius: 16,
-    height: 150,
+    minHeight: 180,
     marginBottom: 24,
     overflow: 'hidden',
+  },
+
+  completedCard: {
+    backgroundColor: '#2A4A2A',
+    borderWidth: 2,
+    borderColor: '#A4D65E',
   },
 
   inviteCard: {
@@ -297,7 +535,11 @@ const styles = StyleSheet.create({
 
   bgIcon: { position: 'absolute', right: 12, bottom: 12 },
 
-  cardContent: { flex: 1, padding: 20, justifyContent: 'space-between' },
+  cardContent: { 
+    flex: 1, 
+    padding: 20, 
+    justifyContent: 'space-between' 
+  },
   
   inviteContent: { 
     flex: 1, 
@@ -305,7 +547,80 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between' 
   },
 
-  cardTitle: { fontSize: 24, fontWeight: '700', color: '#fff' },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+
+  cardTitle: { 
+    fontSize: 24, 
+    fontWeight: '700', 
+    color: '#fff',
+    flex: 1,
+    marginRight: 12,
+  },
+
+  completedCardTitle: {
+    color: '#A4D65E',
+  },
+
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+
+  completedBadge: {
+    backgroundColor: '#A4D65E',
+  },
+
+  activeBadge: {
+    backgroundColor: '#4CAF50',
+  },
+
+  upcomingBadge: {
+    backgroundColor: '#FF9800',
+  },
+
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
+  completedStatusText: {
+    color: '#1A1E23',
+  },
+
+  timeRemainingText: {
+    fontSize: 14,
+    color: '#ccc',
+    marginBottom: 12,
+  },
+
+  completedTimeText: {
+    color: '#A4D65E',
+  },
+
+  viewResultsContainer: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+
+  viewResultsButton: {
+    backgroundColor: '#A4D65E',
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    minWidth: 120,
+  },
+
+  viewResultsButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
 
   inviteText: { 
     fontSize: 16, 
@@ -347,6 +662,31 @@ const styles = StyleSheet.create({
     color: '#1A1E23',
     fontWeight: '600',
     fontSize: 16,
+  },
+
+  leaveButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+
+  leaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 18,
   },
 
   seeMoreRow: { flexDirection: 'row', alignItems: 'center' },
