@@ -64,6 +64,25 @@ const getUnitsLabel  = unit => `Units required per point (${unit.toLowerCase()})
 export default function CompetitionCreationScreen({ navigation }) {
   const { user } = useContext(AuthContext);
 
+  // Helper function to get initial form values
+  const getInitialFormValues = () => {
+    const now = new Date();
+    return {
+      name: '',
+      description: '',
+      startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0), // 9 AM today
+      startTime: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0),
+      endDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59), // 11:59 PM next week
+      endTime: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59),
+      dailyCap: '',
+      activities: [
+        { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
+      ],
+      inviteEmail: '',
+      invitedFriends: []
+    };
+  };
+
   /* ---------- form state ---------- */
   const [name, setName] = useState('');
   const [description, setDesc] = useState('');
@@ -83,6 +102,21 @@ export default function CompetitionCreationScreen({ navigation }) {
 
   const [inviteEmail, setInvite] = useState('');
   const [invitedFriends, setInvitedFriends] = useState([]);
+
+  // Function to reset all form values
+  const resetForm = () => {
+    const initialValues = getInitialFormValues();
+    setName(initialValues.name);
+    setDesc(initialValues.description);
+    setStart(initialValues.startDate);
+    setStartTime(initialValues.startTime);
+    setEnd(initialValues.endDate);
+    setEndTime(initialValues.endTime);
+    setDailyCap(initialValues.dailyCap);
+    setActs(initialValues.activities);
+    setInvite(initialValues.inviteEmail);
+    setInvitedFriends(initialValues.invitedFriends);
+  };
 
   /* ---------- date/time helpers ---------- */
   const handleStartDateChange = (selectedDate) => {
@@ -204,6 +238,10 @@ export default function CompetitionCreationScreen({ navigation }) {
         bonuses: [],
         createdAt: serverTimestamp(),
       });
+      
+      // Reset all form values after successful creation
+      resetForm();
+      
       navigation.navigate('HomeStack');
     } catch(e) {
       Alert.alert('Error', e.message);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../firebase';
@@ -19,9 +19,40 @@ const LeaderboardScreen = ({ route, navigation }) => {
   
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshTimeout, setRefreshTimeout] = useState(null);
+
+  /* ---------------- refresh handler -------------------- */
+  const onRefresh = () => {
+    setRefreshing(true);
+    
+    // Clear any existing timeout
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+    }
+    
+    // Set timeout fallback to stop refreshing after 3 seconds
+    const timeout = setTimeout(() => {
+      setRefreshing(false);
+    }, 3000);
+    
+    setRefreshTimeout(timeout);
+  };
+
+  // Helper function to stop refreshing and clear timeout
+  const stopRefreshing = () => {
+    setRefreshing(false);
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      setRefreshTimeout(null);
+    }
+  };
 
   useEffect(() => {
-    if (!competition?.id) return;
+    if (!competition?.id) {
+      stopRefreshing();
+      return;
+    }
 
     // Listen to submissions for this competition
     const submissionsQuery = query(
@@ -29,63 +60,79 @@ const LeaderboardScreen = ({ route, navigation }) => {
       where('competitionId', '==', competition.id)
     );
 
-    const unsubscribe = onSnapshot(submissionsQuery, async (snapshot) => {
-      try {
-        // Aggregate points by user
-        const pointsByUser = {};
-        
-        snapshot.docs.forEach(doc => {
-          const submission = doc.data();
-          const userId = submission.userId;
+    const unsubscribe = onSnapshot(
+      submissionsQuery, 
+      async (snapshot) => {
+        try {
+          // Aggregate points by user
+          const pointsByUser = {};
           
-          if (!pointsByUser[userId]) {
-            pointsByUser[userId] = 0;
-          }
-          pointsByUser[userId] += submission.points || 0;
-        });
-
-        // Fetch user data for all participants
-        const userDataPromises = competition.participants.map(async (uid) => {
-          try {
-            const userDoc = await getDoc(doc(db, 'users', uid));
-            const userData = userDoc.exists() ? userDoc.data() : {};
+          snapshot.docs.forEach(doc => {
+            const submission = doc.data();
+            const userId = submission.userId;
             
-            return {
-              id: uid,
-              name: userData.username || 'Unknown User',
-              points: pointsByUser[uid] || 0,
-              isCurrentUser: uid === user.uid,
-            };
-          } catch (error) {
-            console.error('Error fetching user:', error);
-            return {
-              id: uid,
-              name: 'Unknown User',
-              points: pointsByUser[uid] || 0,
-              isCurrentUser: uid === user.uid,
-            };
-          }
-        });
+            if (!pointsByUser[userId]) {
+              pointsByUser[userId] = 0;
+            }
+            pointsByUser[userId] += submission.points || 0;
+          });
 
-        const usersWithPoints = await Promise.all(userDataPromises);
-        
-        // Sort by points (descending) and assign positions
-        const sortedRankings = usersWithPoints
-          .sort((a, b) => b.points - a.points)
-          .map((user, index) => ({
-            ...user,
-            position: index + 1,
-          }));
+          // Fetch user data for all participants
+          const userDataPromises = competition.participants.map(async (uid) => {
+            try {
+              const userDoc = await getDoc(doc(db, 'users', uid));
+              const userData = userDoc.exists() ? userDoc.data() : {};
+              
+              return {
+                id: uid,
+                name: userData.username || 'Unknown User',
+                points: pointsByUser[uid] || 0,
+                isCurrentUser: uid === user.uid,
+              };
+            } catch (error) {
+              console.error('Error fetching user:', error);
+              return {
+                id: uid,
+                name: 'Unknown User',
+                points: pointsByUser[uid] || 0,
+                isCurrentUser: uid === user.uid,
+              };
+            }
+          });
 
-        setRankings(sortedRankings);
+          const usersWithPoints = await Promise.all(userDataPromises);
+          
+          // Sort by points (descending) and assign positions
+          const sortedRankings = usersWithPoints
+            .sort((a, b) => b.points - a.points)
+            .map((user, index) => ({
+              ...user,
+              position: index + 1,
+            }));
+
+          setRankings(sortedRankings);
+          setLoading(false);
+          stopRefreshing(); // Stop refresh spinner when data loads
+        } catch (error) {
+          console.error('Error processing leaderboard:', error);
+          setLoading(false);
+          stopRefreshing();
+        }
+      },
+      (error) => {
+        console.error('Error fetching submissions:', error);
         setLoading(false);
-      } catch (error) {
-        console.error('Error processing leaderboard:', error);
-        setLoading(false);
+        stopRefreshing(); // Stop refresh spinner on error
       }
-    });
+    );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      // Clear timeout on cleanup
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
+    };
   }, [competition?.id, competition?.participants, user.uid]);
 
   // Separate top 3 from the rest
@@ -171,7 +218,17 @@ const LeaderboardScreen = ({ route, navigation }) => {
       
       <View style={styles.rankingsContainer}>
         <Text style={styles.rankingsTitle}>Rankings</Text>
-        <ScrollView style={styles.rankingsList}>
+        <ScrollView 
+          style={styles.rankingsList}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#A4D65E']} // Android
+              tintColor="#A4D65E" // iOS
+            />
+          }
+        >
           {rankings.length === 0 ? (
             <Text style={styles.emptyText}>No submissions yet. Be the first to earn points!</Text>
           ) : (

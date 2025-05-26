@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../firebase';
@@ -22,6 +22,8 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
   const [workouts, setWorkouts] = useState([]);
   const [users, setUsers] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshTimeout, setRefreshTimeout] = useState(null);
 
   // Reset to 'all' tab when returning from submission
   useEffect(() => {
@@ -33,11 +35,37 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
     return unsubscribe;
   }, [navigation]);
 
-  useEffect(() => {
-    if (!competition?.id) return;
+  /* ---------------- refresh handler -------------------- */
+  const onRefresh = () => {
+    setRefreshing(true);
+    
+    // Clear any existing timeout
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+    }
+    
+    // Set timeout fallback to stop refreshing after 3 seconds
+    const timeout = setTimeout(() => {
+      setRefreshing(false);
+    }, 3000);
+    
+    setRefreshTimeout(timeout);
+    
+    // Force re-fetch of users and workouts
+    fetchUsers();
+  };
 
-    // Fetch user data for all participants
-    const fetchUsers = async () => {
+  // Helper function to stop refreshing and clear timeout
+  const stopRefreshing = () => {
+    setRefreshing(false);
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      setRefreshTimeout(null);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
       const userMap = {};
       for (const uid of competition.participants || []) {
         try {
@@ -50,8 +78,18 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
         }
       }
       setUsers(userMap);
-    };
+    } catch (error) {
+      console.error('Error in fetchUsers:', error);
+    }
+  };
 
+  useEffect(() => {
+    if (!competition?.id) {
+      stopRefreshing();
+      return;
+    }
+
+    // Fetch user data for all participants
     fetchUsers();
 
     // Listen to submissions for this competition
@@ -62,19 +100,34 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
       // orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(submissionsQuery, (snapshot) => {
-      const submissionsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // Mark as notification if it's a new submission from someone else
-        isNotification: doc.data().userId !== user.uid && 
-                       doc.data().createdAt?.toDate() > new Date(Date.now() - 3600000) // Last hour
-      }));
-      setWorkouts(submissionsData);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      submissionsQuery, 
+      (snapshot) => {
+        const submissionsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          // Mark as notification if it's a new submission from someone else
+          isNotification: doc.data().userId !== user.uid && 
+                         doc.data().createdAt?.toDate() > new Date(Date.now() - 3600000) // Last hour
+        }));
+        setWorkouts(submissionsData);
+        setLoading(false);
+        stopRefreshing(); // Stop refresh spinner when data loads
+      },
+      (error) => {
+        console.error('Error fetching submissions:', error);
+        setLoading(false);
+        stopRefreshing(); // Stop refresh spinner on error
+      }
+    );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      // Clear timeout on cleanup
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
+    };
   }, [competition?.id, user.uid]);
 
   const formatWorkoutDisplay = (workout) => {
@@ -124,7 +177,17 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
         </TouchableOpacity>
       </View>
       
-      <ScrollView style={styles.workoutsContainer}>
+      <ScrollView 
+        style={styles.workoutsContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#A4D65E']} // Android
+            tintColor="#A4D65E" // iOS
+          />
+        }
+      >
         {loading ? (
           <Text style={styles.loadingText}>Loading workouts...</Text>
         ) : workouts.length === 0 ? (

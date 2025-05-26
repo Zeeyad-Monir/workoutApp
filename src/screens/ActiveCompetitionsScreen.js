@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  RefreshControl,
   Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,9 +38,42 @@ export default function ActiveCompetitionsScreen({ navigation }) {
   const [pendingInvitations, setPendingInvitations] = useState([]);
   const [removedCompetitions, setRemovedCompetitions] = useState(new Set()); // Track locally removed competitions
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshTimeout, setRefreshTimeout] = useState(null);
+
+  /* ---------------- refresh handler -------------------- */
+  const onRefresh = () => {
+    setRefreshing(true);
+    // Clear removed competitions cache on refresh
+    setRemovedCompetitions(new Set());
+    
+    // Clear any existing timeout
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+    }
+    
+    // Set timeout fallback to stop refreshing after 3 seconds
+    const timeout = setTimeout(() => {
+      setRefreshing(false);
+    }, 3000);
+    
+    setRefreshTimeout(timeout);
+  };
+
+  // Helper function to stop refreshing and clear timeout
+  const stopRefreshing = () => {
+    setRefreshing(false);
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      setRefreshTimeout(null);
+    }
+  };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      stopRefreshing();
+      return;
+    }
 
     // Active competitions where user is owner OR is in participants array
     const activeQuery = query(
@@ -56,24 +90,43 @@ export default function ActiveCompetitionsScreen({ navigation }) {
       where('pendingParticipants', 'array-contains', user.uid)
     );
 
-    const activeUnsub = onSnapshot(activeQuery, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        // Filter out competitions where user is not in participants (unless they're the owner)
-        .filter(comp => comp.ownerId === user.uid || comp.participants?.includes(user.uid))
-        // Also filter out locally removed competitions
-        .filter(comp => !removedCompetitions.has(comp.id));
-      setActiveCompetitions(data);
-      setLoading(false);
-    });
+    const activeUnsub = onSnapshot(
+      activeQuery, 
+      (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          // Filter out competitions where user is not in participants (unless they're the owner)
+          .filter(comp => comp.ownerId === user.uid || comp.participants?.includes(user.uid))
+          // Also filter out locally removed competitions
+          .filter(comp => !removedCompetitions.has(comp.id));
+        setActiveCompetitions(data);
+        setLoading(false);
+        stopRefreshing(); // Stop refresh spinner when data loads
+      },
+      (error) => {
+        console.error('Error fetching active competitions:', error);
+        setLoading(false);
+        stopRefreshing(); // Stop refresh spinner on error
+      }
+    );
 
-    const pendingUnsub = onSnapshot(pendingQuery, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setPendingInvitations(data);
-    });
+    const pendingUnsub = onSnapshot(
+      pendingQuery, 
+      (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setPendingInvitations(data);
+      },
+      (error) => {
+        console.error('Error fetching pending invitations:', error);
+      }
+    );
 
     return () => {
       activeUnsub();
       pendingUnsub();
+      // Clear timeout on cleanup
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
     };
   }, [user, removedCompetitions]); // Add removedCompetitions to dependency array
 
@@ -310,6 +363,14 @@ export default function ActiveCompetitionsScreen({ navigation }) {
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#A4D65E']} // Android
+              tintColor="#A4D65E" // iOS
+            />
+          }
         >
           {loading && (
             <Text style={styles.loadingText}>Loading competitions…</Text>
@@ -622,6 +683,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  leaveButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+
+  leaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 18,
+  },
+
   inviteText: { 
     fontSize: 16, 
     color: '#1A1E23', 
@@ -662,31 +748,6 @@ const styles = StyleSheet.create({
     color: '#1A1E23',
     fontWeight: '600',
     fontSize: 16,
-  },
-
-  leaveButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#FF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-
-  leaveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    lineHeight: 18,
   },
 
   seeMoreRow: { flexDirection: 'row', alignItems: 'center' },
