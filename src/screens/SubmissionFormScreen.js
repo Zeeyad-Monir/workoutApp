@@ -113,8 +113,11 @@ export default function SubmissionFormScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <Header title="Add Workout" showBackButton onBackPress={()=>navigation.goBack()}/>
-      <ScrollView style={styles.formContainer}>
+      <Header title="Add Workout" showBackButton onPress={()=>navigation.goBack()}/>
+      <ScrollView 
+        style={styles.formContainer}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* Date Picker */}
         <Text style={styles.label}>Date</Text>
         <TouchableOpacity style={styles.datePickerButton} onPress={()=>setShowDatePicker(true)}>
@@ -225,6 +228,7 @@ export default function SubmissionFormScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container:       {flex:1,backgroundColor:'#F8F8F8'},
   formContainer:   {flex:1,padding:16},
+  scrollContent:   {paddingBottom:40}, // Added extra bottom padding
   datePickerButton:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',backgroundColor:'#FFF',borderRadius:8,padding:12,borderWidth:1,borderColor:'#E5E7EB'},
   dateText:        {fontSize:16,color:'#1A1E23'},
   label:           {fontSize:16,color:'#1A1E23',marginBottom:8,marginTop:16},
@@ -242,5 +246,5 @@ const styles = StyleSheet.create({
   pointsValue:     {fontSize:24,fontWeight:'bold',color:'#1A1E23'},
   addPhotoButton:  {flexDirection:'row',alignItems:'center',justifyContent:'center',backgroundColor:'#FFF',borderRadius:8,padding:12,marginVertical:10},
   addPhotoText:    {marginLeft:8,fontSize:16,color:'#1A1E23'},
-  submitButton:    {marginTop:20},
+  submitButton:    {marginTop:20,marginBottom:10}, // Added bottom margin to the button
 });

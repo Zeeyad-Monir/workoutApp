@@ -153,7 +153,11 @@ export default function CompetitionCreationScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <Header title="Create Competition" showBackButton onBackPress={navigation.goBack}/>
-      <ScrollView style={styles.formContainer} nestedScrollEnabled>
+      <ScrollView 
+        style={styles.formContainer} 
+        contentContainerStyle={styles.scrollContent}
+        nestedScrollEnabled
+      >
         <Text style={styles.sectionTitle}>Competition Details</Text>
         <FormInput label="Competition Name" value={name} onChangeText={setName}/>
         <View style={styles.dateRow}>
@@ -256,6 +260,7 @@ export default function CompetitionCreationScreen({ navigation }) {
 const styles = StyleSheet.create({
   container:       {flex:1,backgroundColor:'#F8F8F8'},
   formContainer:   {flex:1,padding:16},
+  scrollContent:   {paddingBottom:40}, // Added extra bottom padding
   sectionTitle:    {fontSize:18,fontWeight:'bold',color:'#1A1E23',marginTop:20,marginBottom:8},
   sectionSubtext:  {fontSize:14,color:'#666',marginBottom:15},
   dateRow:         {flexDirection:'row',justifyContent:'space-between'},
@@ -270,5 +275,5 @@ const styles = StyleSheet.create({
   inputInvite:     {backgroundColor:'#FFF',borderRadius:8,padding:12,borderWidth:1,borderColor:'#E5E7EB'},
   participant:     {flexDirection:'row',alignItems:'center',marginVertical:8},
   participantName: {flex:1,marginLeft:12,color:'#1A1E23'},
-  createButton:    {marginTop:20},
+  createButton:    {marginTop:20,marginBottom:10}, // Added bottom margin to the button
 });
