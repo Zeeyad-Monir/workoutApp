@@ -25,16 +25,138 @@ import {
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
 
-// All activities can now use any of these units
+// Comprehensive list of workout types organized alphabetically (except Custom first)
 const workoutTypes = [
-  'Walking','Running','Cycling','Cardio Session','Elliptical',
-  'Weightlifting','Swimming','Rowing','Yoga','HIIT','Other',
+  'Custom', // Always first for easy access
+  
+  // All other activities in alphabetical order
+  'Aerobics',
+  'Archery',
+  'Backpacking',
+  'Badminton',
+  'Ballroom Dancing',
+  'Barre',
+  'Baseball',
+  'Basketball',
+  'Bodybuilding',
+  'Bouldering',
+  'Bowling',
+  'Boxing',
+  'Brazilian Jiu-Jitsu',
+  'Calisthenics',
+  'Camping Activities',
+  'Canoeing',
+  'Capoeira',
+  'Cardio Session',
+  'Cheerleading',
+  'Cricket',
+  'CrossFit',
+  'Cross-country Skiing',
+  'Cycling',
+  'Dance',
+  'Dance Fitness',
+  'Dog Walking',
+  'Dumbbell Training',
+  'Elliptical',
+  'Fencing',
+  'Figure Skating',
+  'Foam Rolling',
+  'Football',
+  'Frisbee',
+  'Gardening',
+  'Golf',
+  'Gymnastics',
+  'HIIT',
+  'Hiking',
+  'Hip Hop Dancing',
+  'Hockey',
+  'Horseback Riding',
+  'Hot Yoga',
+  'House Cleaning',
+  'Ice Hockey',
+  'Ice Skating',
+  'Jet Skiing',
+  'Jogging',
+  'Judo',
+  'Jump Rope',
+  'Karate',
+  'Kayaking',
+  'Kettlebell',
+  'Lacrosse',
+  'Manual Labor',
+  'Martial Arts',
+  'Massage Therapy',
+  'Meditation',
+  'MMA',
+  'Mountain Biking',
+  'Mountain Climbing',
+  'Muay Thai',
+  'Parkour',
+  'Physical Therapy',
+  'Pilates',
+  'Pole Dancing',
+  'Powerlifting',
+  'Racquetball',
+  'Rehabilitation',
+  'Resistance Training',
+  'Restorative Yoga',
+  'Rock Climbing',
+  'Rock Wall Climbing',
+  'Rowing',
+  'Rugby',
+  'Running',
+  'Sailing',
+  'Skateboarding',
+  'Skiing',
+  'Sledding',
+  'Snowboarding',
+  'Snowshoeing',
+  'Soccer',
+  'Softball',
+  'Spin Class',
+  'Sprinting',
+  'Squash',
+  'Stair Climbing',
+  'Stand-up Paddleboarding',
+  'Step Aerobics',
+  'Stretching',
+  'Stretching Session',
+  'Surfing',
+  'Swimming',
+  'Table Tennis',
+  'Tai Chi',
+  'Taekwondo',
+  'Tennis',
+  'Track and Field',
+  'Trail Running',
+  'Treadmill',
+  'Ultimate Frisbee',
+  'Volleyball',
+  'Walking',
+  'Water Aerobics',
+  'Water Skiing',
+  'Weightlifting',
+  'Wrestling',
+  'Yard Work',
+  'Yoga',
+  'Zumba'
 ];
 
-// Universal units available for all activities
+// Universal units available for all activities - alphabetical order with Custom first
 const universalUnits = [
-  'Minute','Hour','Kilometre','Mile','Meter','Yard',
-  'Step','Rep','Set','Calorie','Session','Class',
+  'Custom', // Custom option first
+  'Calorie',
+  'Class',
+  'Hour',
+  'Kilometre',
+  'Meter',
+  'Mile',
+  'Minute',
+  'Rep',
+  'Session',
+  'Set',
+  'Step',
+  'Yard',
 ];
 
 // Placeholder helper
@@ -52,14 +174,15 @@ const getPointsPlaceholder = unit => {
     Calorie: 'e.g., 50 calories = 1 point',
     Session: 'e.g., 1 session = 10 points',
     Class: 'e.g., 1 class = 15 points',
+    Custom: 'Enter points value',
   };
   return placeholders[unit] || 'Enter points value';
 };
-const getUnitsPlaceholder = unit => `e.g., 30 ${unit.toLowerCase()}`;
+const getUnitsPlaceholder = unit => unit === 'Custom' ? 'e.g., 30 custom-units' : `e.g., 30 ${unit.toLowerCase()}`;
 
 // Label helper
-const getPointsLabel = unit => `Points per ${unit.toLowerCase()}`;
-const getUnitsLabel  = unit => `Units required per point (${unit.toLowerCase()})`;
+const getPointsLabel = unit => unit === 'Custom' ? 'Points per custom unit' : `Points per ${unit.toLowerCase()}`;
+const getUnitsLabel = unit => unit === 'Custom' ? 'Custom units required per point' : `Units required per point (${unit.toLowerCase()})`;
 
 export default function CompetitionCreationScreen({ navigation }) {
   const { user } = useContext(AuthContext);
@@ -76,7 +199,7 @@ export default function CompetitionCreationScreen({ navigation }) {
       endTime: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59),
       dailyCap: '',
       activities: [
-        { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
+        { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1', customType: '', customUnit: '' }
       ],
       inviteUsername: '',
       invitedFriends: []
@@ -95,9 +218,9 @@ export default function CompetitionCreationScreen({ navigation }) {
   const [endTime, setEndTime] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59));
   
   const [dailyCap, setDailyCap] = useState('');
-  // Each activity now has: type, unit, pointsPerUnit, unitsPerPoint
+  // Each activity now has: type, unit, pointsPerUnit, unitsPerPoint, customType
   const [activities, setActs] = useState([
-    { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
+    { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1', customType: '', customUnit: '' }
   ]);
 
   const [inviteUsername, setInviteUsername] = useState('');
@@ -211,10 +334,42 @@ export default function CompetitionCreationScreen({ navigation }) {
     setActs(a => a.map((row,i) => i===idx ? {...row,...patch} : row));
 
   const addActivity = () =>
-    setActs([...activities, { type:'Walking', unit:'Minute', points:'1', unitsPerPoint:'1' }]);
+    setActs([...activities, { type:'Walking', unit:'Minute', points:'1', unitsPerPoint:'1', customType:'', customUnit:'' }]);
 
   const removeAct = idx =>
     setActs(a => a.filter((_,i) => i!==idx));
+
+  // Helper function to get the display name for an activity
+  const getActivityDisplayName = (activity) => {
+    if (activity.type === 'Custom' && activity.customType) {
+      return activity.customType;
+    }
+    return activity.type;
+  };
+
+  // Helper function to get the display name for a unit
+  const getUnitDisplayName = (activity) => {
+    if (activity.unit === 'Custom' && activity.customUnit) {
+      return activity.customUnit;
+    }
+    return activity.unit;
+  };
+
+  // Helper function to get the final activity type for saving
+  const getFinalActivityType = (activity) => {
+    if (activity.type === 'Custom' && activity.customType) {
+      return activity.customType;
+    }
+    return activity.type;
+  };
+
+  // Helper function to get the final unit type for saving
+  const getFinalUnitType = (activity) => {
+    if (activity.unit === 'Custom' && activity.customUnit) {
+      return activity.customUnit;
+    }
+    return activity.unit;
+  };
 
   // Updated function to find user by username instead of email
   const findUserByUsername = async username => {
@@ -331,9 +486,23 @@ export default function CompetitionCreationScreen({ navigation }) {
       return;
     }
     
-    if (activities.some(a=>!a.points || parseFloat(a.points)<=0 || !a.unitsPerPoint || parseFloat(a.unitsPerPoint)<=0)) {
-      Alert.alert('Validation','Please set valid points & units-per-point for all activities');
-      return;
+    // Validate activities including custom types
+    for (const activity of activities) {
+      if (!activity.points || parseFloat(activity.points) <= 0 || 
+          !activity.unitsPerPoint || parseFloat(activity.unitsPerPoint) <= 0) {
+        Alert.alert('Validation','Please set valid points & units-per-point for all activities');
+        return;
+      }
+      
+      if (activity.type === 'Custom' && !activity.customType?.trim()) {
+        Alert.alert('Validation','Please enter a custom activity name or choose a different activity type');
+        return;
+      }
+
+      if (activity.unit === 'Custom' && !activity.customUnit?.trim()) {
+        Alert.alert('Validation','Please enter a custom unit name or choose a different measurement unit');
+        return;
+      }
     }
     
     try {
@@ -346,8 +515,8 @@ export default function CompetitionCreationScreen({ navigation }) {
         participants: [user.uid],
         pendingParticipants: invitedFriends.map(f=>f.uid),
         rules: activities.map(a=>({
-          type: a.type,
-          unit: a.unit,
+          type: getFinalActivityType(a),
+          unit: getFinalUnitType(a),
           pointsPerUnit: Number(a.points),
           unitsPerPoint: Number(a.unitsPerPoint),
         })),
@@ -441,33 +610,73 @@ export default function CompetitionCreationScreen({ navigation }) {
               <Dropdown
                 label="Activity Type"
                 selectedValue={act.type}
-                onValueChange={val=>updateAct(idx,{type:val})}
+                onValueChange={val=>updateAct(idx,{type:val, customType: val === 'Custom' ? act.customType : ''})}
                 items={workoutTypes}
-                containerStyle={{zIndex:z+2}}
+                priorityItems={['Custom']}
+                containerStyle={{zIndex:z+3}}
               />
+              
+              {/* Custom Activity Type Input */}
+              {act.type === 'Custom' && (
+                <View style={styles.customActivityContainer}>
+                  <FormInput
+                    label="Custom Activity Name"
+                    value={act.customType}
+                    onChangeText={customType=>updateAct(idx,{customType})}
+                    placeholder="Enter your custom activity"
+                  />
+                  <Text style={styles.customActivityHint}>
+                    Examples: Rock Climbing, Parkour, Martial Arts, etc.
+                  </Text>
+                </View>
+              )}
+
               <Dropdown
                 label="Measurement Unit"
                 selectedValue={act.unit}
-                onValueChange={unit=>updateAct(idx,{unit, unitsPerPoint:'1'})}
+                onValueChange={unit=>updateAct(idx,{unit, unitsPerPoint:'1', customUnit: unit === 'Custom' ? act.customUnit : ''})}
                 items={universalUnits}
+                priorityItems={['Custom']}
                 containerStyle={{zIndex:z+1}}
               />
 
+              {/* Custom Unit Input */}
+              {act.unit === 'Custom' && (
+                <View style={styles.customActivityContainer}>
+                  <FormInput
+                    label="Custom Unit Name"
+                    value={act.customUnit}
+                    onChangeText={customUnit=>updateAct(idx,{customUnit})}
+                    placeholder="Enter your custom unit"
+                  />
+                  <Text style={styles.customActivityHint}>
+                    Examples: Laps, Rounds, Lengths, Flights, etc.
+                  </Text>
+                </View>
+              )}
+
               <FormInput
-                label={getPointsLabel(act.unit)}
+                label={getPointsLabel(getUnitDisplayName(act))}
                 keyboardType="numeric"
                 value={act.points}
                 onChangeText={p=>updateAct(idx,{points:p})}
-                placeholder={getPointsPlaceholder(act.unit)}
+                placeholder={getPointsPlaceholder(getUnitDisplayName(act))}
               />
 
               <FormInput
-                label={getUnitsLabel(act.unit)}
+                label={getUnitsLabel(getUnitDisplayName(act))}
                 keyboardType="numeric"
                 value={act.unitsPerPoint}
                 onChangeText={u=>updateAct(idx,{unitsPerPoint:u})}
-                placeholder={getUnitsPlaceholder(act.unit)}
+                placeholder={getUnitsPlaceholder(getUnitDisplayName(act))}
               />
+
+              {/* Activity Summary */}
+              <View style={styles.activitySummary}>
+                <Text style={styles.activitySummaryText}>
+                  {getActivityDisplayName(act)} • {act.unitsPerPoint} {getUnitDisplayName(act).toLowerCase()} = {act.points} point{act.points !== '1' ? 's' : ''}
+                </Text>
+              </View>
 
               {activities.length>1 && (
                 <TouchableOpacity onPress={()=>removeAct(idx)} style={styles.trashBtn}>
@@ -591,6 +800,10 @@ const styles = StyleSheet.create({
   label:            {fontSize:16,color:'#1A1E23',marginBottom:8,marginTop:16},
   textArea:         {backgroundColor:'#FFF',borderRadius:8,padding:12,fontSize:16,color:'#1A1E23',minHeight:120,borderWidth:1,borderColor:'#E5E7EB'},
   activityCard:     {backgroundColor:'#FFF',borderRadius:8,padding:12,marginBottom:16,borderWidth:1,borderColor:'#E5E7EB'},
+  customActivityContainer: {marginTop:8,marginBottom:8},
+  customActivityHint: {fontSize:12,color:'#666',marginTop:4,fontStyle:'italic'},
+  activitySummary:  {backgroundColor:'#F0F9E8',borderRadius:6,padding:8,marginTop:8},
+  activitySummaryText: {fontSize:14,color:'#1A1E23',textAlign:'center',fontWeight:'500'},
   trashBtn:         {alignSelf:'flex-end',marginTop:4},
   addBtn:           {flexDirection:'row',alignItems:'center',justifyContent:'center',backgroundColor:'#FFF',borderRadius:8,padding:10,marginBottom:20,borderStyle:'dashed',borderWidth:1,borderColor:'#A4D65E'},
   addText:          {marginLeft:8,color:'#1A1E23',fontWeight:'600'},
