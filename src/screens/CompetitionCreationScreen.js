@@ -1,6 +1,6 @@
 // CompetitionCreationScreen.js
 
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   View,
   Text,
@@ -78,7 +78,7 @@ export default function CompetitionCreationScreen({ navigation }) {
       activities: [
         { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
       ],
-      inviteEmail: '',
+      inviteUsername: '',
       invitedFriends: []
     };
   };
@@ -100,8 +100,51 @@ export default function CompetitionCreationScreen({ navigation }) {
     { type: 'Walking', unit: 'Minute', points: '1', unitsPerPoint: '1' }
   ]);
 
-  const [inviteEmail, setInvite] = useState('');
+  const [inviteUsername, setInviteUsername] = useState('');
   const [invitedFriends, setInvitedFriends] = useState([]);
+  const [userFriends, setUserFriends] = useState([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+
+  /* ---------- fetch user's friends ---------- */
+  useEffect(() => {
+    const fetchUserFriends = async () => {
+      if (!user) return;
+      
+      setLoadingFriends(true);
+      try {
+        // Get user's profile to access friends array
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          const friendIds = userData.friends || [];
+          
+          if (friendIds.length > 0) {
+            // Fetch details for each friend
+            const friendsData = [];
+            for (const friendId of friendIds) {
+              const friendDoc = await getDoc(doc(db, 'users', friendId));
+              if (friendDoc.exists()) {
+                friendsData.push({
+                  uid: friendId,
+                  ...friendDoc.data(),
+                });
+              }
+            }
+            setUserFriends(friendsData);
+          } else {
+            setUserFriends([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user friends:', error);
+        setUserFriends([]);
+      } finally {
+        setLoadingFriends(false);
+      }
+    };
+
+    fetchUserFriends();
+  }, [user]);
 
   // Function to reset all form values
   const resetForm = () => {
@@ -114,7 +157,7 @@ export default function CompetitionCreationScreen({ navigation }) {
     setEndTime(initialValues.endTime);
     setDailyCap(initialValues.dailyCap);
     setActs(initialValues.activities);
-    setInvite(initialValues.inviteEmail);
+    setInviteUsername(initialValues.inviteUsername);
     setInvitedFriends(initialValues.invitedFriends);
   };
 
@@ -173,31 +216,105 @@ export default function CompetitionCreationScreen({ navigation }) {
   const removeAct = idx =>
     setActs(a => a.filter((_,i) => i!==idx));
 
-  const findUserByEmail = async email => {
-    const q = query(collection(db,'users'), where('email','==',email));
-    const snap = await getDocs(q);
-    if (!snap.empty) return { uid: snap.docs[0].id, email };
-    const reverse = await getDoc(doc(db,'emails',email));
-    if (reverse.exists()) return { uid: reverse.data().uid, email };
-    return null;
+  // Updated function to find user by username instead of email
+  const findUserByUsername = async username => {
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername) return null;
+    
+    try {
+      // First try to find user directly in users collection
+      const q = query(collection(db,'users'), where('username','==',trimmedUsername));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userData = snap.docs[0].data();
+        return { 
+          uid: snap.docs[0].id, 
+          username: userData.username,
+          email: userData.email 
+        };
+      }
+      
+      // Then try the username lookup collection
+      const usernameDoc = await getDoc(doc(db,'usernames',trimmedUsername));
+      if (usernameDoc.exists()) {
+        const uid = usernameDoc.data().uid;
+        const userDoc = await getDoc(doc(db,'users',uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          return { 
+            uid, 
+            username: userData.username,
+            email: userData.email 
+          };
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding user by username:', error);
+      return null;
+    }
   };
 
   const addInvite = async () => {
-    const email = inviteEmail.trim().toLowerCase();
-    if (!email) return;
+    const username = inviteUsername.trim();
+    if (!username) return;
+    
+    // Basic username validation
+    if (username.length < 3) {
+      Alert.alert('Invalid Username', 'Username must be at least 3 characters long');
+      return;
+    }
+    
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      Alert.alert('Invalid Username', 'Username can only contain letters, numbers, and underscores');
+      return;
+    }
+    
     try {
-      const friend = await findUserByEmail(email);
-      if (!friend) throw new Error('No user with that email');
-      if (friend.uid===user.uid) throw new Error("That's you!");
-      if (invitedFriends.find(f=>f.uid===friend.uid)) throw new Error('Already invited');
+      const friend = await findUserByUsername(username);
+      if (!friend) {
+        Alert.alert('User Not Found', `No user found with username "${username}"`);
+        return;
+      }
+      
+      if (friend.uid === user.uid) {
+        Alert.alert('Invalid Invitation', "You can't invite yourself!");
+        return;
+      }
+      
+      if (invitedFriends.find(f => f.uid === friend.uid)) {
+        Alert.alert('Already Invited', `${friend.username} is already invited`);
+        return;
+      }
+      
       setInvitedFriends([...invitedFriends, friend]);
-      setInvite('');
+      setInviteUsername('');
+      
+      Alert.alert('Success', `${friend.username} has been invited!`);
     } catch(e) {
-      Alert.alert('Invite error', e.message);
+      console.error('Error adding invite:', e);
+      Alert.alert('Invite Error', 'Failed to add invitation. Please try again.');
     }
   };
+
+  const inviteFriendFromList = (friend) => {
+    if (!!invitedFriends.find(f => f.uid === friend.uid)) {
+      Alert.alert('Already Invited', `${friend.username} is already invited`);
+      return;
+    }
+    
+    setInvitedFriends([...invitedFriends, {
+      uid: friend.uid,
+      username: friend.username,
+      email: friend.email,
+    }]);
+    
+    Alert.alert('Success', `${friend.username} has been invited!`);
+  };
+  
   const removeInvite = uid =>
-    setInvitedFriends(f=>f.filter(x=>x.uid!==uid));
+    setInvitedFriends(f => f.filter(x => x.uid !== uid));
 
   /* ---------- create competition ---------- */
   const handleCreate = async () => {
@@ -242,9 +359,14 @@ export default function CompetitionCreationScreen({ navigation }) {
       // Reset all form values after successful creation
       resetForm();
       
-      navigation.navigate('HomeStack');
+      Alert.alert(
+        'Success!', 
+        `Competition "${name.trim()}" created successfully!${invitedFriends.length > 0 ? ` Invitations sent to ${invitedFriends.length} friend${invitedFriends.length === 1 ? '' : 's'}.` : ''}`,
+        [{ text: 'OK', onPress: () => navigation.navigate('HomeStack') }]
+      );
     } catch(e) {
-      Alert.alert('Error', e.message);
+      console.error('Error creating competition:', e);
+      Alert.alert('Error', 'Failed to create competition. Please try again.');
     }
   };
 
@@ -370,29 +492,85 @@ export default function CompetitionCreationScreen({ navigation }) {
         />
 
         <Text style={styles.sectionTitle}>Invite Participants</Text>
+        <Text style={styles.sectionSubtext}>Invite friends by their registered username</Text>
         <View style={styles.inviteRow}>
           <TextInput
             style={[styles.inputInvite,{flex:1}]}
-            placeholder="Friend's email"
-            value={inviteEmail}
-            onChangeText={setInvite}
+            placeholder="Friend's username"
+            value={inviteUsername}
+            onChangeText={setInviteUsername}
             autoCapitalize="none"
-            keyboardType="email-address"
+            autoCorrect={false}
           />
           <TouchableOpacity onPress={addInvite} style={{marginLeft:8}}>
             <Ionicons name="add-circle" size={32} color="#A4D65E"/>
           </TouchableOpacity>
         </View>
 
-        {invitedFriends.map(f=>(
-          <View key={f.uid} style={styles.participant}>
-            <Ionicons name="person-circle" size={40} color="#A4D65E"/>
-            <Text style={styles.participantName}>{f.email}</Text>
-            <TouchableOpacity onPress={()=>removeInvite(f.uid)}>
-              <Ionicons name="close-circle" size={24} color="#FF6B6B"/>
-            </TouchableOpacity>
-          </View>
-        ))}
+        {/* Invite Friends from Friends List */}
+        {userFriends.length > 0 && (
+          <>
+            <Text style={styles.friendsListTitle}>Invite Friends</Text>
+            <View style={styles.friendsListContainer}>
+              {loadingFriends ? (
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>Loading friends...</Text>
+                </View>
+              ) : (
+                <ScrollView 
+                  style={styles.friendsScrollView}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled={true}
+                >
+                  {userFriends.map((friend) => {
+                    const isAlreadyInvited = !!invitedFriends.find(f => f.uid === friend.uid);
+                    return (
+                      <View key={friend.uid} style={styles.friendListItem}>
+                        <View style={styles.friendInfo}>
+                          <Ionicons name="person-circle" size={36} color="#A4D65E" />
+                          <Text style={styles.friendName}>{friend.username}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[
+                            styles.inviteFriendButton,
+                            isAlreadyInvited && styles.invitedFriendButton
+                          ]}
+                          onPress={() => inviteFriendFromList(friend)}
+                          disabled={isAlreadyInvited}
+                        >
+                          <Text style={[
+                            styles.inviteFriendButtonText,
+                            isAlreadyInvited && styles.invitedFriendButtonText
+                          ]}>
+                            {isAlreadyInvited ? 'Invited' : 'Invite'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+          </>
+        )}
+
+        {invitedFriends.length > 0 && (
+          <>
+            <Text style={styles.invitedTitle}>Invited Friends ({invitedFriends.length})</Text>
+            {invitedFriends.map(f=>(
+              <View key={f.uid} style={styles.participant}>
+                <Ionicons name="person-circle" size={40} color="#A4D65E"/>
+                <View style={styles.participantInfo}>
+                  <Text style={styles.participantName}>{f.username}</Text>
+                  <Text style={styles.participantEmail}>{f.email}</Text>
+                </View>
+                <TouchableOpacity onPress={()=>removeInvite(f.uid)}>
+                  <Ionicons name="close-circle" size={24} color="#FF6B6B"/>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </>
+        )}
 
         <Button title="Create Competition" onPress={handleCreate} style={styles.createButton}/>
       </ScrollView>
@@ -401,24 +579,41 @@ export default function CompetitionCreationScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container:       {flex:1,backgroundColor:'#F8F8F8'},
-  formContainer:   {flex:1,padding:16},
-  scrollContent:   {paddingBottom:40},
-  sectionTitle:    {fontSize:18,fontWeight:'bold',color:'#1A1E23',marginTop:20,marginBottom:8},
-  sectionSubtext:  {fontSize:14,color:'#666',marginBottom:15},
-  dateTimeRow:     {flexDirection:'row',justifyContent:'space-between',gap:10},
-  dateTimeField:   {flex:1},
-  durationPreview: {backgroundColor:'#E8F5E8',borderRadius:8,padding:12,marginBottom:16},
-  durationText:    {fontSize:14,color:'#1A1E23',textAlign:'center',fontWeight:'500'},
-  label:           {fontSize:16,color:'#1A1E23',marginBottom:8,marginTop:16},
-  textArea:        {backgroundColor:'#FFF',borderRadius:8,padding:12,fontSize:16,color:'#1A1E23',minHeight:120,borderWidth:1,borderColor:'#E5E7EB'},
-  activityCard:    {backgroundColor:'#FFF',borderRadius:8,padding:12,marginBottom:16,borderWidth:1,borderColor:'#E5E7EB'},
-  trashBtn:        {alignSelf:'flex-end',marginTop:4},
-  addBtn:          {flexDirection:'row',alignItems:'center',justifyContent:'center',backgroundColor:'#FFF',borderRadius:8,padding:10,marginBottom:20,borderStyle:'dashed',borderWidth:1,borderColor:'#A4D65E'},
-  addText:         {marginLeft:8,color:'#1A1E23',fontWeight:'600'},
-  inviteRow:       {flexDirection:'row',alignItems:'center',marginBottom:16},
-  inputInvite:     {backgroundColor:'#FFF',borderRadius:8,padding:12,borderWidth:1,borderColor:'#E5E7EB'},
-  participant:     {flexDirection:'row',alignItems:'center',marginVertical:8},
-  participantName: {flex:1,marginLeft:12,color:'#1A1E23'},
-  createButton:    {marginTop:20,marginBottom:20},
+  container:        {flex:1,backgroundColor:'#F8F8F8'},
+  formContainer:    {flex:1,padding:16},
+  scrollContent:    {paddingBottom:40},
+  sectionTitle:     {fontSize:18,fontWeight:'bold',color:'#1A1E23',marginTop:20,marginBottom:8},
+  sectionSubtext:   {fontSize:14,color:'#666',marginBottom:15},
+  dateTimeRow:      {flexDirection:'row',justifyContent:'space-between',gap:10},
+  dateTimeField:    {flex:1},
+  durationPreview:  {backgroundColor:'#E8F5E8',borderRadius:8,padding:12,marginBottom:16},
+  durationText:     {fontSize:14,color:'#1A1E23',textAlign:'center',fontWeight:'500'},
+  label:            {fontSize:16,color:'#1A1E23',marginBottom:8,marginTop:16},
+  textArea:         {backgroundColor:'#FFF',borderRadius:8,padding:12,fontSize:16,color:'#1A1E23',minHeight:120,borderWidth:1,borderColor:'#E5E7EB'},
+  activityCard:     {backgroundColor:'#FFF',borderRadius:8,padding:12,marginBottom:16,borderWidth:1,borderColor:'#E5E7EB'},
+  trashBtn:         {alignSelf:'flex-end',marginTop:4},
+  addBtn:           {flexDirection:'row',alignItems:'center',justifyContent:'center',backgroundColor:'#FFF',borderRadius:8,padding:10,marginBottom:20,borderStyle:'dashed',borderWidth:1,borderColor:'#A4D65E'},
+  addText:          {marginLeft:8,color:'#1A1E23',fontWeight:'600'},
+  inviteRow:        {flexDirection:'row',alignItems:'center',marginBottom:16},
+  inputInvite:      {backgroundColor:'#FFF',borderRadius:8,padding:12,borderWidth:1,borderColor:'#E5E7EB'},
+  invitedTitle:     {fontSize:16,fontWeight:'bold',color:'#1A1E23',marginTop:8,marginBottom:12},
+  participant:      {flexDirection:'row',alignItems:'center',marginVertical:8,backgroundColor:'#FFF',borderRadius:8,padding:12},
+  participantInfo:  {flex:1,marginLeft:12},
+  participantName:  {fontSize:16,color:'#1A1E23',fontWeight:'500'},
+  participantEmail: {fontSize:14,color:'#666',marginTop:2},
+  createButton:     {marginTop:20,marginBottom:20},
+  
+  // Friends list styles
+  friendsListTitle: {fontSize:16,fontWeight:'bold',color:'#1A1E23',marginTop:16,marginBottom:8},
+  friendsListContainer: {backgroundColor:'#FFF',borderRadius:8,marginBottom:16,maxHeight:200,borderWidth:1,borderColor:'#E5E7EB'},
+  loadingContainer: {padding:20,alignItems:'center'},
+  loadingText: {fontSize:14,color:'#666'},
+  friendsScrollView: {maxHeight:180},
+  friendListItem: {flexDirection:'row',alignItems:'center',justifyContent:'space-between',padding:12,borderBottomWidth:1,borderBottomColor:'#F3F4F6'},
+  friendInfo: {flexDirection:'row',alignItems:'center',flex:1},
+  friendName: {fontSize:16,color:'#1A1E23',fontWeight:'500',marginLeft:12},
+  inviteFriendButton: {backgroundColor:'#A4D65E',paddingHorizontal:16,paddingVertical:8,borderRadius:6},
+  invitedFriendButton: {backgroundColor:'#E5E7EB'},
+  inviteFriendButtonText: {fontSize:14,fontWeight:'600',color:'#FFFFFF'},
+  invitedFriendButtonText: {color:'#6B7280'},
 });
