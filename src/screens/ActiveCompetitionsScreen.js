@@ -26,6 +26,8 @@ import {
   updateDoc,
   arrayUnion,
   arrayRemove,
+  deleteDoc,
+  getDocs,
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
 
@@ -273,15 +275,66 @@ export default function ActiveCompetitionsScreen({ navigation }) {
     );
   };
 
-  /* ---------------- leave competition handler ---------- */
-  const handleLeaveCompetition = (competition) => {
+  /* ---------------- delete competition handler ---------- */
+  const handleDeleteCompetition = (competition) => {
     Alert.alert(
       'Leave Competition',
-      'Are you sure you want to leave this competition?',
+      `Are you sure you want to leave "${competition.name}"? This will delete all your submissions and remove you from the leaderboard.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Immediately remove from local state for instant UI update
+              setRemovedCompetitions(prev => new Set([...prev, competition.id]));
+              
+              // Step 1: Delete all user's submissions for this competition
+              const submissionsQuery = query(
+                collection(db, 'submissions'),
+                where('competitionId', '==', competition.id),
+                where('userId', '==', user.uid)
+              );
+              
+              const submissionsSnapshot = await getDocs(submissionsQuery);
+              const deletePromises = submissionsSnapshot.docs.map(doc => 
+                deleteDoc(doc.ref)
+              );
+              await Promise.all(deletePromises);
+              
+              // Step 2: Remove user from competition participants
+              const compRef = doc(db, 'competitions', competition.id);
+              await updateDoc(compRef, {
+                participants: arrayRemove(user.uid),
+              });
+              
+              Alert.alert('Success', `You have left "${competition.name}" and all your submissions have been deleted.`);
+            } catch (error) {
+              // If there's an error, restore the competition to the UI
+              setRemovedCompetitions(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(competition.id);
+                return newSet;
+              });
+              Alert.alert('Error', 'Failed to leave competition. Please try again.');
+              console.error(error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /* ---------------- leave competition handler (for completed competitions) ---------- */
+  const handleLeaveCompetition = (competition) => {
+    Alert.alert(
+      'Remove Competition',
+      'Are you sure you want to remove this completed competition from your list?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -304,7 +357,7 @@ export default function ActiveCompetitionsScreen({ navigation }) {
                 });
               }
               
-              Alert.alert('Success', 'You have left the competition');
+              Alert.alert('Success', 'Competition removed from your list');
             } catch (error) {
               // If there's an error, restore the competition to the UI
               setRemovedCompetitions(prev => {
@@ -312,7 +365,7 @@ export default function ActiveCompetitionsScreen({ navigation }) {
                 newSet.delete(competition.id);
                 return newSet;
               });
-              Alert.alert('Error', 'Failed to leave competition');
+              Alert.alert('Error', 'Failed to remove competition');
               console.error(error);
             }
           },
@@ -433,6 +486,18 @@ export default function ActiveCompetitionsScreen({ navigation }) {
                       style={styles.bgIcon}
                     />
 
+                    {/* Delete Competition Button */}
+                    <TouchableOpacity
+                      style={styles.deleteCompetitionButton}
+                      onPress={(e) => {
+                        e.stopPropagation(); // Prevent card press
+                        handleDeleteCompetition(comp);
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="trash" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+
                     <View style={styles.cardContent}>
                       <View style={styles.cardHeader}>
                         <Text style={styles.cardTitle}>
@@ -483,16 +548,28 @@ export default function ActiveCompetitionsScreen({ navigation }) {
                       style={styles.bgIcon}
                     />
 
-                    {/* Leave Competition Button */}
+                    {/* Remove Competition Button (for completed competitions) */}
                     <TouchableOpacity
-                      style={styles.leaveButton}
+                      style={styles.removeCompetitionButton}
                       onPress={(e) => {
                         e.stopPropagation(); // Prevent card press
                         handleLeaveCompetition(comp);
                       }}
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                      <Text style={styles.leaveButtonText}>✕</Text>
+                      <Text style={styles.removeButtonText}>✕</Text>
+                    </TouchableOpacity>
+
+                    {/* Delete Competition Button (also for completed competitions) */}
+                    <TouchableOpacity
+                      style={styles.deleteCompetitionButton}
+                      onPress={(e) => {
+                        e.stopPropagation(); // Prevent card press
+                        handleDeleteCompetition(comp);
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="trash" size={16} color="#FFFFFF" />
                     </TouchableOpacity>
 
                     <View style={styles.cardContent}>
@@ -578,6 +655,7 @@ const styles = StyleSheet.create({
     minHeight: 180,
     marginBottom: 24,
     overflow: 'hidden',
+    position: 'relative',
   },
 
   completedCard: {
@@ -683,7 +761,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  leaveButton: {
+  removeCompetitionButton: {
     position: 'absolute',
     top: 12,
     right: 12,
@@ -701,11 +779,29 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 
-  leaveButtonText: {
+  removeButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
     lineHeight: 18,
+  },
+
+  deleteCompetitionButton: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
 
   inviteText: { 
