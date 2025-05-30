@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, TextInput } from 'react-native';
-import { Header, Button } from '../components';
+import { Header } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../firebase';
 import {
@@ -14,6 +14,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { AuthContext } from '../contexts/AuthContext';
+import NotificationBellToggle from '../components/NotificationBellToggle';
 
 const CompetitionDetailsScreen = ({ route, navigation }) => {
   const [activeTab, setActiveTab] = useState('all');
@@ -466,38 +467,47 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
                           e.stopPropagation(); // Prevent card press
                           handleDeleteWorkout(workout);
                         }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
-                        <Text style={styles.deleteButtonText}>✕</Text>
+                        <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
                       </TouchableOpacity>
                     )}
                     
+                    {/* Notification indicator for new submissions */}
+                    {workout.isNotification && (
+                      <View style={styles.notificationIndicator}>
+                        <Ionicons name="notifications" size={16} color="#FFFFFF" />
+                      </View>
+                    )}
+                    
+                    {/* Competition notification toggle */}
+                    <View style={styles.notificationToggle}>
+                      <NotificationBellToggle 
+                        competitionId={competition.id}
+                        userId={user.uid}
+                      />
+                    </View>
+                    
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.userName}>{formatted.userName}</Text>
+                      <Text style={styles.timestamp}>
+                        {workout.createdAt?.toDate().toLocaleDateString() || 'Unknown date'}
+                      </Text>
+                    </View>
+                    
                     <View style={styles.cardContent}>
-                      <View style={styles.workoutInfo}>
-                        <Text style={styles.workoutType}>{formatted.activityDisplay}</Text>
-                        <View style={styles.workoutDetails}>
-                          <View style={styles.detailItem}>
-                            <Text style={styles.detailIcon}>•</Text>
-                            <Text style={styles.detailText}>{workout.duration} Minutes</Text>
-                          </View>
-                          <View style={styles.detailItem}>
-                            <Text style={styles.detailIcon}>♦</Text>
-                            <Text style={styles.detailText}>{workout.calories} Kcal</Text>
-                          </View>
-                          <View style={styles.detailItem}>
-                            <Text style={styles.detailIcon}>★</Text>
-                            <Text style={styles.detailText}>{workout.points} Points</Text>
-                          </View>
-                        </View>
-                      </View>
-                      <View style={styles.userLabel}>
-                        <Text style={styles.userLabelText}>{formatted.userName}'s Workout</Text>
-                      </View>
-                      {workout.isNotification && (
-                        <View style={styles.notificationIcon}>
-                          <Text style={styles.notificationText}>!</Text>
-                        </View>
+                      <Text style={styles.activityDisplay}>{formatted.activityDisplay}</Text>
+                      {workout.notes && (
+                        <Text style={styles.notes}>{workout.notes}</Text>
                       )}
+                    </View>
+                    
+                    <View style={styles.cardFooter}>
+                      <View style={styles.pointsContainer}>
+                        <Ionicons name="star" size={16} color="#FFD700" />
+                        <Text style={styles.pointsText}>
+                          {workout.points || 0} {workout.points === 1 ? 'point' : 'points'}
+                        </Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -517,193 +527,181 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#333',
-    padding: 5,
-    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
-    marginVertical: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 4,
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 20,
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
   },
   activeTab: {
-    backgroundColor: '#1A1E23',
+    backgroundColor: '#F0F9E8',
   },
   tabText: {
-    color: '#777',
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
   },
   activeTabText: {
     color: '#A4D65E',
+    fontWeight: '600',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EAEAEA',
-    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 20,
-    paddingHorizontal: 16,
-    height: 52,
+    marginTop: 16,
+    borderRadius: 12,
+    paddingHorizontal: 12,
   },
-  searchIcon: { 
-    marginRight: 10 
+  searchIcon: {
+    marginRight: 8,
   },
-  searchInput: { 
-    flex: 1, 
-    fontSize: 16, 
-    color: '#333' 
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1A1E23',
   },
   workoutsContainer: {
     flex: 1,
     paddingHorizontal: 16,
+    paddingTop: 16,
   },
   loadingText: {
     textAlign: 'center',
-    color: '#666',
-    marginTop: 40,
+    marginTop: 24,
     fontSize: 16,
+    color: '#6B7280',
   },
   emptyText: {
     textAlign: 'center',
-    color: '#666',
-    marginTop: 40,
+    marginTop: 24,
     fontSize: 16,
+    color: '#6B7280',
   },
   workoutCard: {
-    height: 120,
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 20,
-    backgroundColor: '#333',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 16,
+    padding: 16,
     position: 'relative',
+    overflow: 'hidden',
   },
   cardBackground: {
     position: 'absolute',
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#333',
+    right: -10,
+    bottom: -10,
+    opacity: 0.1,
   },
-  backgroundIcon: {
-    position: 'absolute',
-    right: 10,
-    bottom: 10,
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1E23',
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#6B7280',
   },
   cardContent: {
-    flex: 1,
-    padding: 15,
+    marginBottom: 12,
   },
-  workoutInfo: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  workoutType: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  activityDisplay: {
+    fontSize: 18,
+    fontWeight: '500',
     color: '#A4D65E',
-    marginBottom: 10,
+    marginBottom: 4,
   },
-  workoutDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 15,
-    marginBottom: 5,
-  },
-  detailIcon: {
-    fontSize: 16,
-    color: 'white',
-    marginRight: 5,
-  },
-  detailText: {
+  notes: {
     fontSize: 14,
-    color: 'white',
+    color: '#4B5563',
+    marginTop: 8,
   },
-  userLabel: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: '#A4D65E',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 15,
-  },
-  userLabelText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-  },
-  notificationIcon: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#A4D65E',
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  notificationText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A1E23',
+  pointsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
+  },
+  pointsText: {
+    marginLeft: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#4B5563',
   },
   deleteButton: {
     position: 'absolute',
     top: 8,
     right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FF4444',
+    backgroundColor: '#FF6B6B',
+    borderRadius: 16,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
   },
-  deleteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-    lineHeight: 16,
+  notificationIndicator: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#A4D65E',
+    borderRadius: 16,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
-
+  notificationToggle: {
+    position: 'absolute',
+    top: 8,
+    right: 48,
+    zIndex: 10,
+  },
+  
   // Rules Tab Styles
   rulesContainer: {
     flex: 1,
     paddingHorizontal: 16,
+    paddingTop: 16,
   },
   backToAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
     marginBottom: 16,
   },
   backToAllText: {
-    color: '#A4D65E',
+    marginLeft: 8,
     fontSize: 16,
     fontWeight: '500',
-    marginLeft: 8,
+    color: '#A4D65E',
   },
   rulesSection: {
     marginBottom: 24,
   },
   rulesSectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#1A1E23',
     marginBottom: 12,
@@ -713,20 +711,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
   },
+  descriptionText: {
+    fontSize: 16,
+    color: '#4B5563',
+    lineHeight: 24,
+  },
   sectionDivider: {
     height: 1,
     backgroundColor: '#E5E7EB',
-    marginVertical: 8,
+    marginVertical: 24,
   },
-  
-  // Description Styles
-  descriptionText: {
-    fontSize: 16,
-    color: '#333333',
-    lineHeight: 24,
-  },
-  
-  // Date Styles
   dateItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -735,18 +729,15 @@ const styles = StyleSheet.create({
   dailyCapItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 0,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    marginTop: 8,
   },
   dateIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F9FAFB',
-    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   dateInfo: {
@@ -755,31 +746,25 @@ const styles = StyleSheet.create({
   dateLabel: {
     fontSize: 14,
     color: '#6B7280',
-    fontWeight: '500',
   },
   dateValue: {
     fontSize: 16,
+    fontWeight: '500',
     color: '#1A1E23',
-    fontWeight: '600',
     marginTop: 2,
   },
-  
-  // Activity Styles
   activityItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    marginBottom: 16,
   },
   activityIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#F0F9E8',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   activityInfo: {
@@ -787,7 +772,7 @@ const styles = StyleSheet.create({
   },
   activityType: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1A1E23',
   },
   activityScoring: {
@@ -795,15 +780,10 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 2,
   },
-  
-  // Participant Styles
   participantItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    marginBottom: 16,
   },
   participantAvatar: {
     marginRight: 12,
@@ -813,36 +793,29 @@ const styles = StyleSheet.create({
   },
   participantName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1A1E23',
   },
   participantHandle: {
     fontSize: 14,
     color: '#6B7280',
-    marginTop: 2,
   },
   ownerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF8E1',
+    backgroundColor: '#F0F9E8',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 16,
   },
   ownerText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#F57C00',
-    marginLeft: 4,
+    fontWeight: '500',
+    color: '#A4D65E',
   },
-  
-  // No Data Styles
   noDataText: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
-    paddingVertical: 20,
-    fontStyle: 'italic',
+    paddingVertical: 16,
   },
 });
 

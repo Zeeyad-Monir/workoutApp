@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import { auth, db } from '../firebase';
 import {
@@ -14,6 +15,10 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { doc, setDoc, query, collection, where, getDocs } from 'firebase/firestore';
+import { 
+  registerForPushNotificationsAsync, 
+  savePushTokenToProfile 
+} from '../utils/notificationUtils';
 
 export default function SignUpScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -106,6 +111,7 @@ export default function SignUpScreen({ navigation }) {
         favouriteWorkout: '',
         wins: 0,
         totals: 0,
+        friends: [],
       });
 
       /* 4) reverse lookup emails/{email} → { uid }  */
@@ -117,6 +123,11 @@ export default function SignUpScreen({ navigation }) {
       await setDoc(doc(db, 'usernames', trimmedUsername), {
         uid: cred.user.uid,
       });
+
+      /* 6) Request notification permissions and save token */
+      setTimeout(() => {
+        requestNotificationPermissions(cred.user.uid);
+      }, 1000); // Small delay to ensure account creation is complete
 
       /* you're now signed in; navigation will flip to the HomeStack */
     } catch (e) {
@@ -132,6 +143,35 @@ export default function SignUpScreen({ navigation }) {
       }
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Request notification permissions after account creation
+  const requestNotificationPermissions = async (userId) => {
+    try {
+      Alert.alert(
+        "Enable Notifications",
+        "Would you like to receive real-time notifications for friend invites and competition updates?",
+        [
+          {
+            text: "Not Now",
+            style: "cancel",
+            onPress: () => console.log("Notifications declined")
+          },
+          {
+            text: "Enable",
+            onPress: async () => {
+              const token = await registerForPushNotificationsAsync();
+              if (token) {
+                await savePushTokenToProfile(userId, token);
+                console.log("Push notifications enabled");
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error requesting notification permissions:', error);
     }
   };
 

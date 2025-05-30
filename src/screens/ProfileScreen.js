@@ -1,5 +1,4 @@
-//ProfileScreen.js
-
+// ProfileScreen.js
 import React, { useContext, useEffect, useState } from 'react';
 import {
   View,
@@ -12,14 +11,15 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Header } from '../components';
+import NotificationToggle from '../components/NotificationToggle';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
 import { auth, db } from '../firebase';
-import { 
-  doc, 
-  onSnapshot, 
-  setDoc, 
-  updateDoc, 
+import {
+  doc,
+  onSnapshot,
+  setDoc,
+  updateDoc,
   collection,
   query,
   where,
@@ -28,14 +28,20 @@ import {
   deleteDoc,
   arrayUnion,
   arrayRemove,
-  getDoc
+  getDoc,
 } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
+import {
+  updateNotificationSettings,
+  registerForPushNotificationsAsync,
+  savePushTokenToProfile,
+  DEFAULT_NOTIFICATION_SETTINGS,
+} from '../utils/notificationUtils';
 
 export default function ProfileScreen() {
   const { user } = useContext(AuthContext);
 
-  // Tab state
+  // Tab state: only profile & friends
   const [activeTab, setActiveTab] = useState('profile');
 
   // Profile state
@@ -46,6 +52,7 @@ export default function ProfileScreen() {
     wins: 0,
     totals: 0,
     friends: [],
+    notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
   });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -67,22 +74,26 @@ export default function ProfileScreen() {
     const unsub = onSnapshot(ref, snap => {
       if (snap.exists()) {
         const userData = snap.data();
+        if (!userData.notificationSettings) {
+          userData.notificationSettings = DEFAULT_NOTIFICATION_SETTINGS;
+        }
         setProfile(userData);
-        // Fetch friend details when friends array changes
         if (userData.friends?.length > 0) {
           fetchFriendsDetails(userData.friends);
         } else {
           setFriendsList([]);
         }
       } else {
-        // create doc using the username provided at sign‑up
         setDoc(ref, {
           username: user.displayName || user.email.split('@')[0],
-          handle: (user.displayName || user.email.split('@')[0]).replace(/\s+/g, '').toLowerCase(),
+          handle: (user.displayName || user.email.split('@')[0])
+            .replace(/\s+/g, '')
+            .toLowerCase(),
           favouriteWorkout: '',
           wins: 0,
           totals: 0,
           friends: [],
+          notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
         });
       }
       setLoading(false);
@@ -91,251 +102,229 @@ export default function ProfileScreen() {
     return unsub;
   }, [user]);
 
-  /* ----- live friend requests subscription ----- */
+  /* ----- live pending friend-requests subscription ----- */
   useEffect(() => {
     if (!user) return;
-    
     const requestsRef = collection(db, 'users', user.uid, 'friendRequests');
-    const unsub = onSnapshot(requestsRef, async (snapshot) => {
+    const unsub = onSnapshot(requestsRef, async snapshot => {
       const requests = [];
-      
       for (const docSnap of snapshot.docs) {
-        const requestData = docSnap.data();
-        // Fetch sender's details
+        const data = docSnap.data();
         try {
-          const senderDoc = await getDoc(doc(db, 'users', requestData.fromUserId));
-          if (senderDoc.exists()) {
+          const sender = await getDoc(doc(db, 'users', data.fromUserId));
+          if (sender.exists()) {
             requests.push({
               id: docSnap.id,
-              ...requestData,
-              senderData: senderDoc.data(),
+              ...data,
+              senderData: sender.data(),
             });
           }
-        } catch (error) {
-          console.error('Error fetching sender data:', error);
+        } catch (e) {
+          console.error('Fetch sender error', e);
         }
       }
-      
       setPendingRequests(requests);
     });
-
     return unsub;
   }, [user]);
 
-  /* ----- live sent requests subscription ----- */
+  /* ----- live sent friend-requests subscription ----- */
   useEffect(() => {
     if (!user) return;
-    
-    const sentRequestsRef = collection(db, 'users', user.uid, 'sentRequests');
-    const unsub = onSnapshot(sentRequestsRef, async (snapshot) => {
+    const sentRef = collection(db, 'users', user.uid, 'sentRequests');
+    const unsub = onSnapshot(sentRef, async snapshot => {
       const requests = [];
-      
       for (const docSnap of snapshot.docs) {
-        const requestData = docSnap.data();
-        // Fetch recipient's details
+        const data = docSnap.data();
         try {
-          const recipientDoc = await getDoc(doc(db, 'users', requestData.toUserId));
-          if (recipientDoc.exists()) {
+          const recip = await getDoc(doc(db, 'users', data.toUserId));
+          if (recip.exists()) {
             requests.push({
               id: docSnap.id,
-              ...requestData,
-              recipientData: recipientDoc.data(),
+              ...data,
+              recipientData: recip.data(),
             });
           }
-        } catch (error) {
-          console.error('Error fetching recipient data:', error);
+        } catch (e) {
+          console.error('Fetch recipient error', e);
         }
       }
-      
       setSentRequests(requests);
     });
-
     return unsub;
   }, [user]);
 
   /* ----- fetch friends details ----- */
-  const fetchFriendsDetails = async (friendIds) => {
-    if (!friendIds || friendIds.length === 0) {
+  const fetchFriendsDetails = async ids => {
+    if (!ids?.length) {
       setFriendsList([]);
       return;
     }
-
     setLoadingFriends(true);
     try {
-      const friendsData = [];
-      for (const friendId of friendIds) {
-        const friendDoc = await getDoc(doc(db, 'users', friendId));
-        if (friendDoc.exists()) {
-          friendsData.push({
-            id: friendId,
-            ...friendDoc.data(),
-          });
+      const list = [];
+      for (const id of ids) {
+        const snap = await getDoc(doc(db, 'users', id));
+        if (snap.exists()) {
+          list.push({ id, ...snap.data() });
         }
       }
-      setFriendsList(friendsData);
-    } catch (error) {
-      console.error('Error fetching friends details:', error);
+      setFriendsList(list);
+    } catch (e) {
+      console.error('Fetch friends error', e);
     } finally {
       setLoadingFriends(false);
     }
   };
 
-  /* ----- profile handlers ----- */
-  const startEdit = () => { setDraft(profile); setEditing(true); };
+  /* ----- editing handlers ----- */
+  const startEdit = () => {
+    setDraft(profile);
+    setEditing(true);
+  };
   const cancelEdit = () => setEditing(false);
-
   const saveEdit = async () => {
-    const ref = doc(db, 'users', user.uid);
-    await updateDoc(ref, draft);
+    await updateDoc(doc(db, 'users', user.uid), draft);
     setEditing(false);
   };
 
+  /* ----- logout ----- */
   const handleLogout = () => signOut(auth);
 
-  /* ----- friends handlers ----- */
-  const findUserByUsername = async (username) => {
-    const trimmedUsername = username.trim();
-    if (!trimmedUsername) return null;
-
+  /* ----- notification handlers ----- */
+  const handleToggleNotification = async (setting, value) => {
     try {
-      const q = query(collection(db, 'users'), where('username', '==', trimmedUsername));
-      const snapshot = await getDocs(q);
-      
-      if (!snapshot.empty) {
-        const userData = snapshot.docs[0].data();
-        return {
-          id: snapshot.docs[0].id,
-          ...userData,
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error('Error finding user:', error);
-      return null;
+      setProfile(prev => ({
+        ...prev,
+        notificationSettings: {
+          ...prev.notificationSettings,
+          [setting]: value,
+        },
+      }));
+      await updateNotificationSettings(user.uid, { [setting]: value });
+    } catch (e) {
+      console.error('Toggle notif error', e);
+      Alert.alert('Error', 'Could not update notification setting.');
+      setProfile(prev => ({
+        ...prev,
+        notificationSettings: {
+          ...prev.notificationSettings,
+          [setting]: !value,
+        },
+      }));
     }
+  };
+  const requestNotificationPermissions = async () => {
+    try {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        await savePushTokenToProfile(user.uid, token);
+        Alert.alert('Success', 'Notifications enabled.');
+      } else {
+        Alert.alert('Permission Required', 'Enable notifications in Settings.');
+      }
+    } catch (e) {
+      console.error('Req notif perm error', e);
+      Alert.alert('Error', 'Failed to enable notifications.');
+    }
+  };
+
+  /* ----- friend-request handlers ----- */
+  const findUserByUsername = async username => {
+    const name = username.trim();
+    if (!name) return null;
+    const q = query(collection(db, 'users'), where('username', '==', name));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    }
+    return null;
   };
 
   const sendFriendRequest = async () => {
-    const username = friendUsername.trim();
-    if (!username) {
-      Alert.alert('Error', 'Please enter a username');
-      return;
+    if (!friendUsername.trim()) {
+      return Alert.alert('Error', 'Enter a username');
     }
-
-    if (username === profile.username) {
-      Alert.alert('Error', "You can't send a friend request to yourself");
-      return;
+    if (friendUsername.trim() === profile.username) {
+      return Alert.alert('Error', "Can't friend yourself");
     }
-
-    try {
-      const targetUser = await findUserByUsername(username);
-      if (!targetUser) {
-        Alert.alert('User Not Found', `No user found with username "${username}"`);
-        return;
-      }
-
-      // Check if already friends
-      if (profile.friends?.includes(targetUser.id)) {
-        Alert.alert('Already Friends', `You are already friends with ${targetUser.username}`);
-        return;
-      }
-
-      // Check if request already sent
-      const existingRequestQuery = query(
-        collection(db, 'users', targetUser.id, 'friendRequests'),
+    const target = await findUserByUsername(friendUsername);
+    if (!target) {
+      return Alert.alert('Not Found', `No user "${friendUsername}"`);
+    }
+    if (profile.friends.includes(target.id)) {
+      return Alert.alert('Already Friends', `You and ${target.username} are already friends`);
+    }
+    // check existing
+    const existing = await getDocs(
+      query(
+        collection(db, 'users', target.id, 'friendRequests'),
         where('fromUserId', '==', user.uid)
-      );
-      const existingRequests = await getDocs(existingRequestQuery);
-      
-      if (!existingRequests.empty) {
-        Alert.alert('Request Already Sent', `You have already sent a friend request to ${targetUser.username}`);
-        return;
-      }
-
-      const timestamp = new Date();
-
-      // Send friend request to recipient
-      await addDoc(collection(db, 'users', targetUser.id, 'friendRequests'), {
-        fromUserId: user.uid,
-        fromUsername: profile.username,
-        timestamp: timestamp,
-      });
-
-      // Store sent request in sender's collection
-      await addDoc(collection(db, 'users', user.uid, 'sentRequests'), {
-        toUserId: targetUser.id,
-        toUsername: targetUser.username,
-        timestamp: timestamp,
-      });
-
-      setFriendUsername('');
-      Alert.alert('Success', `Friend request sent to ${targetUser.username}!`);
-    } catch (error) {
-      console.error('Error sending friend request:', error);
-      Alert.alert('Error', 'Failed to send friend request. Please try again.');
+      )
+    );
+    if (!existing.empty) {
+      return Alert.alert('Pending', 'You already sent a request');
     }
+    const ts = new Date();
+    await addDoc(collection(db, 'users', target.id, 'friendRequests'), {
+      fromUserId: user.uid,
+      fromUsername: profile.username,
+      timestamp: ts,
+    });
+    await addDoc(collection(db, 'users', user.uid, 'sentRequests'), {
+      toUserId: target.id,
+      toUsername: target.username,
+      timestamp: ts,
+    });
+    setFriendUsername('');
+    Alert.alert('Success', `Request sent to ${target.username}`);
   };
 
-  const acceptFriendRequest = async (request) => {
+  const acceptFriendRequest = async req => {
     try {
-      // Add to both users' friends arrays
-      const myRef = doc(db, 'users', user.uid);
-      const friendRef = doc(db, 'users', request.fromUserId);
-      
-      await updateDoc(myRef, {
-        friends: arrayUnion(request.fromUserId),
+      // add each other
+      await updateDoc(doc(db, 'users', user.uid), {
+        friends: arrayUnion(req.fromUserId),
       });
-      
-      await updateDoc(friendRef, {
+      await updateDoc(doc(db, 'users', req.fromUserId), {
         friends: arrayUnion(user.uid),
       });
-
-      // Delete the friend request from recipient's collection
-      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', request.id));
-
-      // Delete the sent request from sender's collection
-      const sentRequestQuery = query(
-        collection(db, 'users', request.fromUserId, 'sentRequests'),
+      // remove request
+      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', req.id));
+      // remove sent copy
+      const sentQ = query(
+        collection(db, 'users', req.fromUserId, 'sentRequests'),
         where('toUserId', '==', user.uid)
       );
-      const sentRequestDocs = await getDocs(sentRequestQuery);
-      sentRequestDocs.forEach(async (docSnap) => {
-        await deleteDoc(docSnap.ref);
-      });
-
-      Alert.alert('Success', `You are now friends with ${request.senderData.username}!`);
-    } catch (error) {
-      console.error('Error accepting friend request:', error);
-      Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+      const sentSnap = await getDocs(sentQ);
+      sentSnap.forEach(d => deleteDoc(d.ref));
+      Alert.alert('You are now friends with ' + req.senderData.username);
+    } catch (e) {
+      console.error('Accept friend error', e);
+      Alert.alert('Error', 'Could not accept request');
     }
   };
 
-  const rejectFriendRequest = async (request) => {
+  const rejectFriendRequest = async req => {
     try {
-      // Delete the friend request from recipient's collection
-      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', request.id));
-
-      // Delete the sent request from sender's collection
-      const sentRequestQuery = query(
-        collection(db, 'users', request.fromUserId, 'sentRequests'),
+      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', req.id));
+      const sentQ = query(
+        collection(db, 'users', req.fromUserId, 'sentRequests'),
         where('toUserId', '==', user.uid)
       );
-      const sentRequestDocs = await getDocs(sentRequestQuery);
-      sentRequestDocs.forEach(async (docSnap) => {
-        await deleteDoc(docSnap.ref);
-      });
-
-      Alert.alert('Request Declined', `Friend request from ${request.senderData.username} has been declined.`);
-    } catch (error) {
-      console.error('Error rejecting friend request:', error);
-      Alert.alert('Error', 'Failed to reject friend request. Please try again.');
+      const sentSnap = await getDocs(sentQ);
+      sentSnap.forEach(d => deleteDoc(d.ref));
+      Alert.alert('Request declined');
+    } catch (e) {
+      console.error('Reject friend error', e);
+      Alert.alert('Error', 'Could not decline request');
     }
   };
 
-  const cancelSentRequest = async (request) => {
+  const cancelSentRequest = req => {
     Alert.alert(
       'Cancel Request',
-      `Are you sure you want to cancel your friend request to ${request.recipientData.username}?`,
+      `Cancel request to ${req.recipientData.username}?`,
       [
         { text: 'No', style: 'cancel' },
         {
@@ -343,23 +332,17 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete the sent request from sender's collection
-              await deleteDoc(doc(db, 'users', user.uid, 'sentRequests', request.id));
-
-              // Delete the friend request from recipient's collection
-              const friendRequestQuery = query(
-                collection(db, 'users', request.toUserId, 'friendRequests'),
+              await deleteDoc(doc(db, 'users', user.uid, 'sentRequests', req.id));
+              const q = query(
+                collection(db, 'users', req.toUserId, 'friendRequests'),
                 where('fromUserId', '==', user.uid)
               );
-              const friendRequestDocs = await getDocs(friendRequestQuery);
-              friendRequestDocs.forEach(async (docSnap) => {
-                await deleteDoc(docSnap.ref);
-              });
-
-              Alert.alert('Request Cancelled', `Friend request to ${request.recipientData.username} has been cancelled.`);
-            } catch (error) {
-              console.error('Error cancelling sent request:', error);
-              Alert.alert('Error', 'Failed to cancel friend request. Please try again.');
+              const snap = await getDocs(q);
+              snap.forEach(d => deleteDoc(d.ref));
+              Alert.alert('Request cancelled');
+            } catch (e) {
+              console.error('Cancel sent error', e);
+              Alert.alert('Error', 'Could not cancel');
             }
           },
         },
@@ -367,32 +350,27 @@ export default function ProfileScreen() {
     );
   };
 
-  const removeFriend = (friend) => {
+  const removeFriend = friend => {
     Alert.alert(
       'Remove Friend',
-      `Are you sure you want to remove ${friend.username} from your friends?`,
+      `Remove ${friend.username}?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'No', style: 'cancel' },
         {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
             try {
-              const myRef = doc(db, 'users', user.uid);
-              const friendRef = doc(db, 'users', friend.id);
-              
-              await updateDoc(myRef, {
+              await updateDoc(doc(db, 'users', user.uid), {
                 friends: arrayRemove(friend.id),
               });
-              
-              await updateDoc(friendRef, {
+              await updateDoc(doc(db, 'users', friend.id), {
                 friends: arrayRemove(user.uid),
               });
-
-              Alert.alert('Success', `${friend.username} has been removed from your friends.`);
-            } catch (error) {
-              console.error('Error removing friend:', error);
-              Alert.alert('Error', 'Failed to remove friend. Please try again.');
+              Alert.alert('Removed ' + friend.username);
+            } catch (e) {
+              console.error('Remove friend error', e);
+              Alert.alert('Error', 'Could not remove friend');
             }
           },
         },
@@ -402,19 +380,15 @@ export default function ProfileScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    try {
-      if (profile.friends?.length > 0) {
-        await fetchFriendsDetails(profile.friends);
-      }
-    } catch (error) {
-      console.error('Error refreshing friends:', error);
-    } finally {
-      setRefreshing(false);
+    if (profile.friends?.length) {
+      await fetchFriendsDetails(profile.friends);
     }
+    setRefreshing(false);
   };
 
   if (loading) return null;
 
+  /* ----- render Profile tab ----- */
   const renderProfileTab = () => (
     <ScrollView style={styles.scrollView}>
       {/* Profile card */}
@@ -431,9 +405,9 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* About you */}
+      {/* About You */}
       <View style={styles.section}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>About You</Text>
           {!editing && (
             <TouchableOpacity onPress={startEdit}>
@@ -441,7 +415,6 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           )}
         </View>
-
         <View style={styles.statsContainer}>
           {renderStat(
             'Favourite Workout', 'fitness',
@@ -461,9 +434,8 @@ export default function ProfileScreen() {
             t => setDraft({ ...draft, totals: Number(t) }),
             `${profile.totals} Total`
           )}
-
           {editing && (
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <View style={styles.editActionsRow}>
               <TouchableOpacity onPress={cancelEdit} style={styles.editBtn}>
                 <Text style={styles.editBtnText}>Cancel</Text>
               </TouchableOpacity>
@@ -472,6 +444,50 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           )}
+        </View>
+      </View>
+
+      {/* Notification Settings */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notification Settings</Text>
+        <View style={styles.notificationSettingsContainer}>
+          <NotificationToggle
+            title="Invite Pop-ups"
+            description="Show pop-up alerts for friend and competition invites"
+            iconName="notifications"
+            value={profile.notificationSettings.invitePopups}
+            onValueChange={val => handleToggleNotification('invitePopups', val)}
+          />
+          <NotificationToggle
+            title="Sound Alerts"
+            description="Play sounds when notifications arrive"
+            iconName="volume-high"
+            value={profile.notificationSettings.soundAlerts}
+            onValueChange={val => handleToggleNotification('soundAlerts', val)}
+          />
+          <NotificationToggle
+            title="Badge Counters"
+            description="Show badge numbers on app icon"
+            iconName="ellipse"
+            value={profile.notificationSettings.badgeCounters}
+            onValueChange={val => handleToggleNotification('badgeCounters', val)}
+          />
+        </View>
+      </View>
+
+      {/* Notification Permissions */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notification Permissions</Text>
+        <View style={styles.permissionsContainer}>
+          <Text style={styles.permissionsText}>
+            If you're not receiving notifications, enable them in your device settings.
+          </Text>
+          <TouchableOpacity
+            style={styles.permissionsButton}
+            onPress={requestNotificationPermissions}
+          >
+            <Text style={styles.permissionsButtonText}>Request Permissions</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -494,8 +510,9 @@ export default function ProfileScreen() {
     </ScrollView>
   );
 
+  /* ----- render Friends tab ----- */
   const renderFriendsTab = () => (
-    <ScrollView 
+    <ScrollView
       style={styles.scrollView}
       refreshControl={
         <RefreshControl
@@ -506,11 +523,13 @@ export default function ProfileScreen() {
         />
       }
     >
-      {/* Add Friend Section */}
+      {/* Add Friend */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Add Friend</Text>
         <View style={styles.addFriendContainer}>
-          <Text style={styles.addFriendSubtext}>Search by username to send a friend request</Text>
+          <Text style={styles.addFriendSubtext}>
+            Search by username to send a friend request
+          </Text>
           <View style={styles.addFriendRow}>
             <TextInput
               style={styles.addFriendInput}
@@ -518,7 +537,6 @@ export default function ProfileScreen() {
               value={friendUsername}
               onChangeText={setFriendUsername}
               autoCapitalize="none"
-              autoCorrect={false}
             />
             <TouchableOpacity onPress={sendFriendRequest} style={styles.addFriendButton}>
               <Ionicons name="person-add" size={24} color="#FFFFFF" />
@@ -527,30 +545,34 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Pending Requests Section */}
+      {/* Pending Requests */}
       {pendingRequests.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Pending Requests ({pendingRequests.length})</Text>
+          <Text style={styles.sectionTitle}>
+            Pending Requests ({pendingRequests.length})
+          </Text>
           <View style={styles.requestsContainer}>
-            {pendingRequests.map((request) => (
-              <View key={request.id} style={styles.requestItem}>
+            {pendingRequests.map(req => (
+              <View key={req.id} style={styles.requestItem}>
                 <View style={styles.requestUserInfo}>
                   <Ionicons name="person-circle" size={40} color="#A4D65E" />
                   <View style={styles.requestUserText}>
-                    <Text style={styles.requestUsername}>{request.senderData.username}</Text>
+                    <Text style={styles.requestUsername}>
+                      {req.senderData.username}
+                    </Text>
                     <Text style={styles.requestSubtext}>wants to be friends</Text>
                   </View>
                 </View>
                 <View style={styles.requestActions}>
                   <TouchableOpacity
                     style={[styles.requestButton, styles.acceptButton]}
-                    onPress={() => acceptFriendRequest(request)}
+                    onPress={() => acceptFriendRequest(req)}
                   >
                     <Ionicons name="checkmark" size={20} color="#FFFFFF" />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.requestButton, styles.rejectButton]}
-                    onPress={() => rejectFriendRequest(request)}
+                    onPress={() => rejectFriendRequest(req)}
                   >
                     <Ionicons name="close" size={20} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -561,23 +583,27 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* Sent Requests Section */}
+      {/* Sent Requests */}
       {sentRequests.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sent Requests ({sentRequests.length})</Text>
+          <Text style={styles.sectionTitle}>
+            Sent Requests ({sentRequests.length})
+          </Text>
           <View style={styles.requestsContainer}>
-            {sentRequests.map((request) => (
-              <View key={request.id} style={styles.requestItem}>
+            {sentRequests.map(req => (
+              <View key={req.id} style={styles.requestItem}>
                 <View style={styles.requestUserInfo}>
                   <Ionicons name="person-circle" size={40} color="#A4D65E" />
                   <View style={styles.requestUserText}>
-                    <Text style={styles.requestUsername}>{request.recipientData.username}</Text>
+                    <Text style={styles.requestUsername}>
+                      {req.recipientData.username}
+                    </Text>
                     <Text style={styles.requestSubtext}>request pending</Text>
                   </View>
                 </View>
                 <TouchableOpacity
                   style={[styles.requestButton, styles.cancelButton]}
-                  onPress={() => cancelSentRequest(request)}
+                  onPress={() => cancelSentRequest(req)}
                 >
                   <Ionicons name="close" size={20} color="#FFFFFF" />
                 </TouchableOpacity>
@@ -587,7 +613,7 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* Friends List Section */}
+      {/* Friends List */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Friends ({friendsList.length})</Text>
         {loadingFriends ? (
@@ -598,17 +624,23 @@ export default function ProfileScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="people" size={48} color="#6B7280" />
             <Text style={styles.emptyText}>No friends yet</Text>
-            <Text style={styles.emptySubtext}>Add friends to see them here</Text>
+            <Text style={styles.emptySubtext}>
+              Add friends to see them here
+            </Text>
           </View>
         ) : (
           <View style={styles.friendsContainer}>
-            {friendsList.map((friend) => (
+            {friendsList.map(friend => (
               <View key={friend.id} style={styles.friendItem}>
                 <View style={styles.friendUserInfo}>
                   <Ionicons name="person-circle" size={40} color="#A4D65E" />
                   <View style={styles.friendUserText}>
-                    <Text style={styles.friendUsername}>{friend.username}</Text>
-                    <Text style={styles.friendSubtext}>@{friend.handle}</Text>
+                    <Text style={styles.friendUsername}>
+                      {friend.username}
+                    </Text>
+                    <Text style={styles.friendSubtext}>
+                      @{friend.handle}
+                    </Text>
                   </View>
                 </View>
                 <TouchableOpacity
@@ -635,28 +667,23 @@ export default function ProfileScreen() {
           style={[styles.tab, activeTab === 'profile' && styles.activeTab]}
           onPress={() => setActiveTab('profile')}
         >
-          <Ionicons 
-            name="person" 
-            size={20} 
-            color={activeTab === 'profile' ? '#A4D65E' : '#6B7280'} 
+          <Ionicons
+            name="person"
+            size={20}
+            color={activeTab === 'profile' ? '#A4D65E' : '#6B7280'}
           />
-          <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>
-            Profile
-          </Text>
+          <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>Profile</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
           onPress={() => setActiveTab('friends')}
         >
-          <Ionicons 
-            name="people" 
-            size={20} 
-            color={activeTab === 'friends' ? '#A4D65E' : '#6B7280'} 
+          <Ionicons
+            name="people"
+            size={20}
+            color={activeTab === 'friends' ? '#A4D65E' : '#6B7280'}
           />
-          <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
-            Friends
-          </Text>
+          <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>Friends</Text>
           {pendingRequests.length > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{pendingRequests.length}</Text>
@@ -665,13 +692,15 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tab Content */}
       {activeTab === 'profile' ? renderProfileTab() : renderFriendsTab()}
     </View>
   );
 }
 
-function renderStat(label, icon, editing, draftVal, onChange, displayVal) {
+/* —————————————————————————————— */
+/* Helper to render each stat row */
+/* —————————————————————————————— */
+function renderStat(label, iconName, editing, draftVal, onChange, displayVal) {
   return (
     <View style={styles.statItem}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -686,7 +715,7 @@ function renderStat(label, icon, editing, draftVal, onChange, displayVal) {
         ) : (
           <Text style={styles.statValue}>{displayVal}</Text>
         )}
-        <Ionicons name={icon} size={24} color="#A4D65E" style={styles.statIcon} />
+        <Ionicons name={iconName} size={24} color="#A4D65E" style={styles.statIcon} />
       </View>
     </View>
   );
@@ -694,7 +723,7 @@ function renderStat(label, icon, editing, draftVal, onChange, displayVal) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F8F8' },
-  
+
   // Tab Navigation
   tabContainer: {
     flexDirection: 'row',
@@ -714,9 +743,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     position: 'relative',
   },
-  activeTab: {
-    backgroundColor: '#F0F9E8',
-  },
+  activeTab: { backgroundColor: '#F0F9E8' },
   tabText: {
     fontSize: 16,
     fontWeight: '500',
@@ -744,33 +771,87 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  // Common
+  // Profile Tab
   scrollView: { flex: 1, paddingHorizontal: 16 },
   section: { marginTop: 24 },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23', marginBottom: 12 },
-  loadingContainer: { padding: 20, alignItems: 'center' },
-  loadingText: { color: '#6B7280', fontSize: 16 },
 
-  // Profile Tab
-  profileCard: { backgroundColor: '#A4D65E', borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center' },
-  profileImageContainer: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  profileCard: {
+    backgroundColor: '#A4D65E',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileImageContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
   profileInfo: { flex: 1 },
   profileName: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23' },
   profileUsername: { fontSize: 14, color: '#1A1E23', opacity: 0.8 },
+
   statsContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
   statItem: { marginBottom: 16 },
   statLabel: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
   statValueContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statValue: { fontSize: 16, fontWeight: '500', color: '#1A1E23' },
   statIcon: { marginLeft: 8 },
+  editActionsRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  editBtn: { marginLeft: 12 },
+  editBtnText: { color: '#A4D65E', fontWeight: '600' },
+
+  // Notification Settings
+  notificationSettingsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  permissionsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+  },
+  permissionsText: { fontSize: 14, color: '#6B7280', marginBottom: 16 },
+  permissionsButton: {
+    backgroundColor: '#A4D65E',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  permissionsButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
+  // Account
   accountOptions: { backgroundColor: '#FFFFFF', borderRadius: 12, overflow: 'hidden' },
-  accountOption: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  accountOptionIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  accountOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  accountOptionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   accountOptionContent: { flex: 1 },
   accountOptionTitle: { fontSize: 16, fontWeight: '500', color: '#1A1E23' },
   accountOptionSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  editBtn: { marginLeft: 12 },
-  editBtnText: { color: '#A4D65E', fontWeight: '600' },
 
   // Friends Tab
   addFriendContainer: {
@@ -804,7 +885,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  
+
   requestsContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -886,9 +967,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
   },
-  removeFriendButton: {
-    padding: 8,
-  },
+  removeFriendButton: { padding: 8 },
 
   emptyContainer: {
     backgroundColor: '#FFFFFF',
@@ -896,15 +975,9 @@ const styles = StyleSheet.create({
     padding: 32,
     alignItems: 'center',
   },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1A1E23',
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
+  emptyText: { fontSize: 18, fontWeight: '500', color: '#1A1E23', marginTop: 12 },
+  emptySubtext: { fontSize: 14, color: '#6B7280', marginTop: 4 },
+
+  loadingContainer: { padding: 20, alignItems: 'center' },
+  loadingText: { color: '#6B7280', fontSize: 16 },
 });
