@@ -1,8 +1,14 @@
 // Import Expo's root component registration function
 import { registerRootComponent } from 'expo';
+import messaging from '@react-native-firebase/messaging';
 
 // Import the main App component
 import App from './App';
+
+// Register background handler for push notifications
+messaging().setBackgroundMessageHandler(async remoteMessage => {
+  console.log('Message handled in the background!', remoteMessage);
+});
 
 /**
  * Entry point of the React Native application

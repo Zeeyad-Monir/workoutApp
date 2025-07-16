@@ -30,6 +30,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
+import notificationService from '../services/notificationService';
 
 export default function ProfileScreen() {
   const { user } = useContext(AuthContext);
@@ -379,6 +380,18 @@ export default function ProfileScreen() {
       };
       
       await addDoc(collection(db, 'users', user.uid, 'sentRequests'), sentRequestData);
+
+      // Send push notification to recipient
+      try {
+        await notificationService.sendFriendInviteNotification(
+          targetUser.id,
+          profile.username
+        );
+        console.log('Push notification sent for friend invite');
+      } catch (notificationError) {
+        console.error('Error sending push notification:', notificationError);
+        // Don't fail the whole process if notification fails
+      }
 
       setFriendUsername('');
       Alert.alert('Success', `Friend request sent to ${targetUser.username}!`);
