@@ -1,500 +1,1276 @@
-//LeaderboardScreen.js
-
-import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
-import { Header, Button } from '../components';
-import { Ionicons } from '@expo/vector-icons';
-import { db } from '../firebase';
+import React, { useContext, useEffect, useState } from 'react';
 import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Alert,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { Header } from '../components';
+import { Ionicons } from '@expo/vector-icons';
+import { AuthContext } from '../contexts/AuthContext';
+import { auth, db } from '../firebase';
+import { 
+  doc, 
+  onSnapshot, 
+  setDoc, 
+  updateDoc, 
   collection,
   query,
   where,
-  onSnapshot,
-  doc,
+  getDocs,
+  addDoc,
+  deleteDoc,
+  arrayUnion,
+  arrayRemove,
   getDoc,
-  updateDoc,
+  serverTimestamp,
 } from 'firebase/firestore';
-import { AuthContext } from '../contexts/AuthContext';
+import { signOut } from 'firebase/auth';
 
-const LeaderboardScreen = ({ route, navigation }) => {
-  const { competition } = route.params;
+export default function ProfileScreen({ route }) {
   const { user } = useContext(AuthContext);
+
+  // Tab state - check if we should open friends tab from navigation params
+  const [activeTab, setActiveTab] = useState(() => {
+    return route?.params?.tab === 'friends' ? 'friends' : 'profile';
+  });
   
-  const [rankings, setRankings] = useState([]);
+  // Update tab when navigation params change
+  useEffect(() => {
+    if (route?.params?.tab === 'friends') {
+      setActiveTab('friends');
+    }
+  }, [route?.params?.tab]);
+
+  // Profile state - NO LONGER storing wins/losses
+  const [profile, setProfile] = useState({
+    username: '',
+    handle: '',
+    favouriteWorkout: '',
+    friends: [],
+  });
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({});
+
+  // Competition stats - computed on demand
+  const [competitionStats, setCompetitionStats] = useState({
+    wins: 0,
+    losses: 0,
+    loading: true,
+    error: null,
+  });
+
+  // Friends state
+  const [friendsList, setFriendsList] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [sentRequests, setSentRequests] = useState([]);
+  const [friendUsername, setFriendUsername] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshTimeout, setRefreshTimeout] = useState(null);
+  const [loadingFriends, setLoadingFriends] = useState(false);
 
-  /* ---------------- refresh handler -------------------- */
-  const onRefresh = () => {
-    setRefreshing(true);
+  /* ----- UPDATED: Compute wins and losses only from participated competitions ----- */
+  const fetchCompetitionStats = async () => {
+    if (!user) return;
     
-    // Clear any existing timeout
-    if (refreshTimeout) {
-      clearTimeout(refreshTimeout);
+    setCompetitionStats(prev => ({ ...prev, loading: true, error: null }));
+    
+    try {
+      // Query only completed competitions where user was a participant
+      const participatedQuery = query(
+        collection(db, 'competitions'),
+        where('participants', 'array-contains', user.uid),
+        where('status', '==', 'completed')
+      );
+      
+      const participatedSnapshot = await getDocs(participatedQuery);
+      
+      let winsCount = 0;
+      let lossesCount = 0;
+      
+      participatedSnapshot.forEach(doc => {
+        const competition = doc.data();
+        
+        // Check if user won or lost
+        if (competition.winnerId === user.uid) {
+          winsCount++;
+        } else if (competition.winnerId && competition.winnerId !== user.uid) {
+          lossesCount++;
+        }
+        // Note: If winnerId is not set, we don't count it as either win or loss
+      });
+      
+      setCompetitionStats({
+        wins: winsCount,
+        losses: lossesCount,
+        loading: false,
+        error: null,
+      });
+      
+    } catch (error) {
+      console.error('Error fetching competition stats:', error);
+      setCompetitionStats({
+        wins: 0,
+        losses: 0,
+        loading: false,
+        error: 'Failed to load stats',
+      });
     }
-    
-    // Set timeout fallback to stop refreshing after 3 seconds
-    const timeout = setTimeout(() => {
-      setRefreshing(false);
-    }, 3000);
-    
-    setRefreshTimeout(timeout);
   };
 
-  // Helper function to stop refreshing and clear timeout
-  const stopRefreshing = () => {
-    setRefreshing(false);
-    if (refreshTimeout) {
-      clearTimeout(refreshTimeout);
-      setRefreshTimeout(null);
+  // Fetch competition stats on mount and when user changes
+  useEffect(() => {
+    if (user && activeTab === 'profile') {
+      fetchCompetitionStats();
     }
-  };
+  }, [user, activeTab]);
 
-  // Handle completing the competition
-  const handleCompleteCompetition = async () => {
-    // Check if competition is already completed
-    if (competition.status === 'completed') {
-      Alert.alert('Info', 'This competition is already completed');
-      return;
-    }
-    
-    // Check if user is the owner
-    if (competition.ownerId !== user.uid) {
-      Alert.alert('Error', 'Only the competition owner can complete it');
-      return;
-    }
-    
-    Alert.alert(
-      'Complete Competition',
-      'This will finalize the results and update win/loss records. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Complete',
-          style: 'destructive',
-          onPress: async () => {
+  /* ----- Real-time profile subscription (without wins/losses) ----- */
+  useEffect(() => {
+    if (!user) return;
+    const ref = doc(db, 'users', user.uid);
+
+    const unsub = onSnapshot(ref, 
+      snap => {
+        if (snap.exists()) {
+          const userData = snap.data();
+          setProfile({
+            username: userData.username || '',
+            handle: userData.handle || '',
+            favouriteWorkout: userData.favouriteWorkout || '',
+            friends: userData.friends || [],
+          });
+          
+          // Fetch friend details when friends array changes
+          if (userData.friends?.length > 0) {
+            fetchFriendsDetails(userData.friends);
+          } else {
+            setFriendsList([]);
+          }
+        } else {
+          // Create initial user profile
+          const initialData = {
+            username: user.displayName || user.email.split('@')[0],
+            handle: (user.displayName || user.email.split('@')[0]).replace(/\s+/g, '').toLowerCase(),
+            favouriteWorkout: '',
+            friends: [],
+          };
+          setDoc(ref, initialData)
+            .then(() => console.log('User profile created'))
+            .catch(error => console.error('Error creating user profile:', error));
+        }
+        setLoading(false);
+      },
+      error => {
+        console.error('Error in profile subscription:', error);
+        setLoading(false);
+      }
+    );
+
+    // Monitor friend requests for removal notifications
+    const requestsRef = collection(db, 'users', user.uid, 'friendRequests');
+    const requestsUnsub = onSnapshot(requestsRef, 
+      async (snapshot) => {
+        for (const docSnap of snapshot.docs) {
+          const requestData = docSnap.data();
+          
+          // Handle friend removal notifications
+          if (requestData.type === 'friend_removed') {
             try {
-              // Simply update the status - Cloud Function will handle the rest
-              await updateDoc(doc(db, 'competitions', competition.id), {
-                status: 'completed'
+              // Update the local profile state
+              setProfile(prev => ({
+                ...prev,
+                friends: prev.friends.filter(id => id !== requestData.fromUserId)
+              }));
+              
+              // Update in Firestore
+              await updateDoc(doc(db, 'users', user.uid), {
+                friends: arrayRemove(requestData.fromUserId),
               });
-              Alert.alert('Success', 'Competition completed! Stats will update shortly.');
-              navigation.goBack();
+              
+              // Delete the processed notification
+              await deleteDoc(docSnap.ref);
             } catch (error) {
-              console.error('Error completing competition:', error);
-              Alert.alert('Error', 'Failed to complete competition');
+              console.error('Error processing friend removal:', error);
             }
           }
         }
-      ]
-    );
-  };
-
-  useEffect(() => {
-    if (!competition?.id) {
-      stopRefreshing();
-      return;
-    }
-
-    // Listen to submissions for this competition
-    const submissionsQuery = query(
-      collection(db, 'submissions'),
-      where('competitionId', '==', competition.id)
-    );
-
-    const unsubscribe = onSnapshot(
-      submissionsQuery, 
-      async (snapshot) => {
-        try {
-          // Aggregate points by user
-          const pointsByUser = {};
-          
-          snapshot.docs.forEach(doc => {
-            const submission = doc.data();
-            const userId = submission.userId;
-            
-            if (!pointsByUser[userId]) {
-              pointsByUser[userId] = 0;
-            }
-            pointsByUser[userId] += submission.points || 0;
-          });
-
-          // Fetch user data for all participants
-          const userDataPromises = competition.participants.map(async (uid) => {
-            try {
-              const userDoc = await getDoc(doc(db, 'users', uid));
-              const userData = userDoc.exists() ? userDoc.data() : {};
-              
-              return {
-                id: uid,
-                name: userData.username || 'Unknown User',
-                points: pointsByUser[uid] || 0,
-                isCurrentUser: uid === user.uid,
-              };
-            } catch (error) {
-              console.error('Error fetching user:', error);
-              return {
-                id: uid,
-                name: 'Unknown User',
-                points: pointsByUser[uid] || 0,
-                isCurrentUser: uid === user.uid,
-              };
-            }
-          });
-
-          const usersWithPoints = await Promise.all(userDataPromises);
-          
-          // Sort by points (descending) and assign positions
-          const sortedRankings = usersWithPoints
-            .sort((a, b) => b.points - a.points)
-            .map((user, index) => ({
-              ...user,
-              position: index + 1,
-            }));
-
-          setRankings(sortedRankings);
-          setLoading(false);
-          stopRefreshing(); // Stop refresh spinner when data loads
-        } catch (error) {
-          console.error('Error processing leaderboard:', error);
-          setLoading(false);
-          stopRefreshing();
-        }
-      },
-      (error) => {
-        console.error('Error fetching submissions:', error);
-        setLoading(false);
-        stopRefreshing(); // Stop refresh spinner on error
       }
     );
 
     return () => {
-      unsubscribe();
-      // Clear timeout on cleanup
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout);
-      }
+      unsub();
+      requestsUnsub();
     };
-  }, [competition?.id, competition?.participants, user.uid]);
+  }, [user]);
 
-  // Separate top 3 from the rest
-  const topThree = rankings.slice(0, 3);
-  const restOfRankings = rankings.slice(3);
+  /* ----- Friend requests subscription ----- */
+  useEffect(() => {
+    if (!user) return;
+    
+    const requestsRef = collection(db, 'users', user.uid, 'friendRequests');
+    const unsub = onSnapshot(requestsRef, 
+      async (snapshot) => {
+        const requests = [];
+        
+        for (const docSnap of snapshot.docs) {
+          const requestData = docSnap.data();
+          
+          // Skip friend removal notifications
+          if (requestData.type === 'friend_removed') {
+            continue;
+          }
+          
+          // If this is an accepted request, automatically add to friends
+          if (requestData.accepted) {
+            try {
+              await updateDoc(doc(db, 'users', user.uid), {
+                friends: arrayUnion(requestData.fromUserId),
+              });
+              // Delete the processed request
+              await deleteDoc(docSnap.ref);
+              continue;
+            } catch (error) {
+              console.error('Error processing accepted request:', error);
+            }
+          }
+          
+          // Fetch sender's details for regular requests
+          try {
+            const senderDoc = await getDoc(doc(db, 'users', requestData.fromUserId));
+            if (senderDoc.exists()) {
+              requests.push({
+                id: docSnap.id,
+                ...requestData,
+                senderData: senderDoc.data(),
+              });
+            }
+          } catch (error) {
+            console.error('Error fetching sender data:', error);
+          }
+        }
+        
+        setPendingRequests(requests);
+      },
+      error => {
+        console.error('Error in friend requests subscription:', error);
+      }
+    );
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <Header 
-          title="Leaderboard" 
-          showBackButton={true} 
-          onBackPress={() => navigation.goBack()}
+    return unsub;
+  }, [user]);
+
+  /* ----- Sent requests subscription ----- */
+  useEffect(() => {
+    if (!user) return;
+    
+    const sentRequestsRef = collection(db, 'users', user.uid, 'sentRequests');
+    const unsub = onSnapshot(sentRequestsRef, 
+      async (snapshot) => {
+        const requests = [];
+        
+        for (const docSnap of snapshot.docs) {
+          const requestData = docSnap.data();
+          
+          try {
+            const recipientDoc = await getDoc(doc(db, 'users', requestData.toUserId));
+            if (recipientDoc.exists()) {
+              const recipientData = recipientDoc.data();
+              
+              // Check if we're already friends
+              if (profile.friends?.includes(requestData.toUserId)) {
+                // Clean up the sent request
+                await deleteDoc(docSnap.ref);
+                continue;
+              }
+              
+              requests.push({
+                id: docSnap.id,
+                ...requestData,
+                recipientData: recipientData,
+              });
+            } else {
+              // Recipient doesn't exist, clean up
+              await deleteDoc(docSnap.ref);
+            }
+          } catch (error) {
+            console.error('Error fetching recipient data:', error);
+          }
+        }
+        
+        setSentRequests(requests);
+      },
+      error => {
+        console.error('Error in sent requests subscription:', error);
+      }
+    );
+
+    return unsub;
+  }, [user, profile.friends]);
+
+  /* ----- Fetch friends details ----- */
+  const fetchFriendsDetails = async (friendIds) => {
+    if (!friendIds || friendIds.length === 0) {
+      setFriendsList([]);
+      return;
+    }
+
+    setLoadingFriends(true);
+    try {
+      const friendsData = [];
+      for (const friendId of friendIds) {
+        const friendDoc = await getDoc(doc(db, 'users', friendId));
+        if (friendDoc.exists()) {
+          friendsData.push({
+            id: friendId,
+            ...friendDoc.data(),
+          });
+        }
+      }
+      setFriendsList(friendsData);
+    } catch (error) {
+      console.error('Error fetching friends details:', error);
+    } finally {
+      setLoadingFriends(false);
+    }
+  };
+
+  /* ----- Profile edit handlers (only for favouriteWorkout) ----- */
+  const startEdit = () => { 
+    setDraft({ favouriteWorkout: profile.favouriteWorkout }); 
+    setEditing(true); 
+  };
+  
+  const cancelEdit = () => setEditing(false);
+
+  const saveEdit = async () => {
+    try {
+      const ref = doc(db, 'users', user.uid);
+      await updateDoc(ref, {
+        favouriteWorkout: draft.favouriteWorkout || ''
+      });
+      setEditing(false);
+      Alert.alert('Success', 'Profile updated successfully');
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      Alert.alert('Error', 'Failed to save profile changes');
+    }
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', style: 'destructive', onPress: () => signOut(auth) }
+      ]
+    );
+  };
+
+  /* ----- Friends handlers ----- */
+  const findUserByUsername = async (username) => {
+    const trimmedUsername = username.trim().toLowerCase();
+    if (!trimmedUsername) return null;
+
+    try {
+      // Check username in usernames collection
+      const usernameDoc = await getDoc(doc(db, 'usernames', trimmedUsername));
+      
+      if (!usernameDoc.exists()) {
+        return null;
+      }
+      
+      const { uid } = usernameDoc.data();
+      
+      // Fetch full user profile
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      
+      if (!userDoc.exists()) {
+        return null;
+      }
+      
+      return {
+        id: uid,
+        ...userDoc.data(),
+      };
+    } catch (error) {
+      console.error('Error finding user:', error);
+      return null;
+    }
+  };
+
+  const sendFriendRequest = async () => {
+    const username = friendUsername.trim();
+    if (!username) {
+      Alert.alert('Error', 'Please enter a username');
+      return;
+    }
+
+    if (username.toLowerCase() === profile.username.toLowerCase()) {
+      Alert.alert('Error', "You can't send a friend request to yourself");
+      return;
+    }
+
+    try {
+      const targetUser = await findUserByUsername(username);
+      if (!targetUser) {
+        Alert.alert('User Not Found', `No user found with username "${username}"`);
+        return;
+      }
+
+      // Check if already friends
+      if (profile.friends?.includes(targetUser.id)) {
+        Alert.alert('Already Friends', `You are already friends with ${targetUser.username}`);
+        return;
+      }
+
+      // Check if request already sent
+      let requestAlreadySent = false;
+      try {
+        const sentRequestsSnapshot = await getDocs(collection(db, 'users', user.uid, 'sentRequests'));
+        requestAlreadySent = sentRequestsSnapshot.docs.some(doc => 
+          doc.data().toUserId === targetUser.id
+        );
+      } catch (error) {
+        console.log('Error checking sent requests:', error);
+      }
+      
+      if (requestAlreadySent) {
+        Alert.alert('Request Already Sent', `You have already sent a friend request to ${targetUser.username}`);
+        return;
+      }
+
+      // Send friend request
+      const friendRequestData = {
+        fromUserId: user.uid,
+        fromUsername: profile.username,
+        timestamp: serverTimestamp(),
+      };
+      
+      await addDoc(collection(db, 'users', targetUser.id, 'friendRequests'), friendRequestData);
+
+      // Store sent request
+      const sentRequestData = {
+        toUserId: targetUser.id,
+        toUsername: targetUser.username,
+        fromUserId: user.uid,
+        timestamp: serverTimestamp(),
+      };
+      
+      await addDoc(collection(db, 'users', user.uid, 'sentRequests'), sentRequestData);
+
+      setFriendUsername('');
+      Alert.alert('Success', `Friend request sent to ${targetUser.username}!`);
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      Alert.alert('Error', 'Failed to send friend request. Please try again.');
+    }
+  };
+
+  const acceptFriendRequest = async (request) => {
+    try {
+      // Add to friends
+      const myRef = doc(db, 'users', user.uid);
+      await updateDoc(myRef, {
+        friends: arrayUnion(request.fromUserId),
+      });
+
+      // Delete the request
+      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', request.id));
+
+      // Create reciprocal accepted request
+      try {
+        await addDoc(collection(db, 'users', request.fromUserId, 'friendRequests'), {
+          fromUserId: user.uid,
+          fromUsername: profile.username,
+          timestamp: serverTimestamp(),
+          accepted: true,
+        });
+      } catch (error) {
+        console.log('Could not create reciprocal request:', error);
+      }
+
+      Alert.alert('Success', `You are now friends with ${request.senderData.username}!`);
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+    }
+  };
+
+  const rejectFriendRequest = async (request) => {
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'friendRequests', request.id));
+      Alert.alert('Request Declined', `Friend request from ${request.senderData.username} has been declined.`);
+    } catch (error) {
+      console.error('Error rejecting friend request:', error);
+      Alert.alert('Error', 'Failed to reject friend request. Please try again.');
+    }
+  };
+
+  const cancelSentRequest = async (request) => {
+    Alert.alert(
+      'Cancel Request',
+      `Are you sure you want to cancel your friend request to ${request.recipientData.username}?`,
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'users', user.uid, 'sentRequests', request.id));
+              Alert.alert('Request Cancelled', `Friend request to ${request.recipientData.username} has been cancelled.`);
+            } catch (error) {
+              console.error('Error cancelling sent request:', error);
+              Alert.alert('Error', 'Failed to cancel friend request. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const removeFriend = (friend) => {
+    Alert.alert(
+      'Remove Friend',
+      `Are you sure you want to remove ${friend.username} from your friends?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Remove from friends list
+              const myRef = doc(db, 'users', user.uid);
+              await updateDoc(myRef, {
+                friends: arrayRemove(friend.id),
+              });
+
+              // Notify friend of removal
+              try {
+                await addDoc(collection(db, 'users', friend.id, 'friendRequests'), {
+                  fromUserId: user.uid,
+                  fromUsername: profile.username,
+                  timestamp: serverTimestamp(),
+                  type: 'friend_removed',
+                });
+              } catch (error) {
+                console.log('Could not notify friend of removal:', error);
+              }
+
+              Alert.alert('Success', `${friend.username} has been removed from your friends.`);
+            } catch (error) {
+              console.error('Error removing friend:', error);
+              Alert.alert('Error', 'Failed to remove friend. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Refresh competition stats
+      await fetchCompetitionStats();
+      
+      // Refresh friends if needed
+      if (profile.friends?.length > 0) {
+        await fetchFriendsDetails(profile.friends);
+      }
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Calculate win rate
+  const getWinRate = () => {
+    const total = competitionStats.wins + competitionStats.losses;
+    if (total === 0) return 'N/A';
+    const rate = (competitionStats.wins / total) * 100;
+    return `${Math.round(rate)}%`;
+  };
+
+  if (loading) return null;
+
+  const renderProfileTab = () => (
+    <ScrollView 
+      style={styles.scrollView}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={['#A4D65E']}
+          tintColor="#A4D65E"
         />
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading rankings...</Text>
+      }
+    >
+      {/* Profile card */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Profile</Text>
+        <View style={styles.profileCard}>
+          <View style={styles.profileImageContainer}>
+            <Ionicons name="person-circle" size={60} color="#A4D65E" />
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>{profile.username}</Text>
+            <Text style={styles.profileUsername}>@{profile.handle}</Text>
+          </View>
         </View>
       </View>
-    );
-  }
 
-  return (
-    <View style={styles.container}>
-      <Header 
-        title="Leaderboard" 
-        showBackButton={true} 
-        onBackPress={() => navigation.goBack()}
-      />
-      
-      <View style={styles.podiumContainer}>
-        <View style={styles.podiumIcon}>
-          <Ionicons name="trophy" size={40} color="#A4D65E" />
+      {/* Competition Stats - COMPUTED ON DEMAND */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Competition Stats</Text>
+          {competitionStats.loading && (
+            <ActivityIndicator size="small" color="#A4D65E" style={{ marginLeft: 10 }} />
+          )}
         </View>
         
-        {topThree.length > 0 && (
-          <View style={styles.topThreeContainer}>
-            {/* Reorder for podium display: 2nd, 1st, 3rd */}
-            {[1, 0, 2].map(index => {
-              const user = topThree[index];
-              if (!user) return <View key={index} style={{ flex: 1 }} />;
-              
-              return (
-                <View 
-                  key={user.id} 
-                  style={[
-                    styles.topUserContainer, 
-                    user.position === 1 && styles.firstPlaceContainer,
-                    user.position === 2 && styles.secondPlaceContainer,
-                    user.position === 3 && styles.thirdPlaceContainer,
-                  ]}
-                >
-                  <View style={styles.userImageContainer}>
-                    <Ionicons 
-                      name="person-circle" 
-                      size={user.position === 1 ? 70 : 60} 
-                      color={user.position === 1 ? "#FFD700" : "#FFFFFF"} 
-                    />
-                    <View style={[
-                      styles.positionBadge,
-                      user.position === 1 && styles.firstPlaceBadge,
-                      user.position === 2 && styles.secondPlaceBadge,
-                      user.position === 3 && styles.thirdPlaceBadge,
-                    ]}>
-                      <Text style={styles.positionText}>{user.position}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.userName}>{user.name}</Text>
-                  <View style={styles.pointsContainer}>
-                    <Ionicons name="star" size={14} color="#A4D65E" />
-                    <Text style={styles.pointsText}>{user.points.toFixed(0)} pts</Text>
+        {competitionStats.error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{competitionStats.error}</Text>
+            <TouchableOpacity onPress={fetchCompetitionStats} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, styles.winsCard]}>
+              <Ionicons name="trophy" size={32} color="#FFD700" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.wins}
+              </Text>
+              <Text style={styles.statLabel}>Wins</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.lossesCard]}>
+              <Ionicons name="trending-down" size={32} color="#FF6B6B" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.losses}
+              </Text>
+              <Text style={styles.statLabel}>Losses</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.rateCard]}>
+              <Ionicons name="stats-chart" size={32} color="#A4D65E" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : getWinRate()}
+              </Text>
+              <Text style={styles.statLabel}>Win Rate</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.totalCard]}>
+              <Ionicons name="bar-chart" size={32} color="#6B7280" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.wins + competitionStats.losses}
+              </Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+          </View>
+        )}
+        
+        <Text style={styles.statsInfoText}>
+          Stats are calculated from your completed competitions
+        </Text>
+      </View>
+
+      {/* About You - Only favourite workout is editable */}
+      <View style={styles.section}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <Text style={styles.sectionTitle}>About You</Text>
+          {!editing && (
+            <TouchableOpacity onPress={startEdit}>
+              <Ionicons name="pencil" size={20} color="#6B7280" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabelSmall}>Favourite Workout</Text>
+            <View style={styles.statValueContainer}>
+              {editing ? (
+                <TextInput
+                  style={[styles.statValue, styles.editableInput]}
+                  value={draft.favouriteWorkout}
+                  onChangeText={t => setDraft({ ...draft, favouriteWorkout: t })}
+                  placeholder="Enter your favourite workout"
+                  placeholderTextColor="#999"
+                />
+              ) : (
+                <Text style={styles.statValue}>
+                  {profile.favouriteWorkout || 'Not set'}
+                </Text>
+              )}
+              <Ionicons name="fitness" size={24} color="#A4D65E" style={styles.statIcon} />
+            </View>
+          </View>
+
+          {editing && (
+            <View style={styles.editButtons}>
+              <TouchableOpacity onPress={cancelEdit} style={styles.editBtn}>
+                <Text style={styles.editBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveEdit} style={[styles.editBtn, styles.saveBtn]}>
+                <Text style={[styles.editBtnText, styles.saveBtnText]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Account */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.accountOptions}>
+          <TouchableOpacity style={styles.accountOption} onPress={handleLogout}>
+            <View style={styles.accountOptionIcon}>
+              <Ionicons name="log-out" size={24} color="#6B7280" />
+            </View>
+            <View style={styles.accountOptionContent}>
+              <Text style={styles.accountOptionTitle}>Log out</Text>
+              <Text style={styles.accountOptionSubtitle}>Securely sign off</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
+  const renderFriendsTab = () => (
+    <ScrollView 
+      style={styles.scrollView}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={['#A4D65E']}
+          tintColor="#A4D65E"
+        />
+      }
+    >
+      {/* Add Friend Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Add Friend</Text>
+        <View style={styles.addFriendContainer}>
+          <Text style={styles.addFriendSubtext}>Search by username to send a friend request</Text>
+          <View style={styles.addFriendRow}>
+            <TextInput
+              style={styles.addFriendInput}
+              placeholder="Enter username"
+              value={friendUsername}
+              onChangeText={setFriendUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity onPress={sendFriendRequest} style={styles.addFriendButton}>
+              <Ionicons name="person-add" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* Pending Requests */}
+      {pendingRequests.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Pending Requests ({pendingRequests.length})</Text>
+          <View style={styles.requestsContainer}>
+            {pendingRequests.map((request) => (
+              <View key={request.id} style={styles.requestItem}>
+                <View style={styles.requestUserInfo}>
+                  <Ionicons name="person-circle" size={40} color="#A4D65E" />
+                  <View style={styles.requestUserText}>
+                    <Text style={styles.requestUsername}>{request.senderData.username}</Text>
+                    <Text style={styles.requestSubtext}>wants to be friends</Text>
                   </View>
                 </View>
-              );
-            })}
+                <View style={styles.requestActions}>
+                  <TouchableOpacity
+                    style={[styles.requestButton, styles.acceptButton]}
+                    onPress={() => acceptFriendRequest(request)}
+                  >
+                    <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.requestButton, styles.rejectButton]}
+                    onPress={() => rejectFriendRequest(request)}
+                  >
+                    <Ionicons name="close" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Sent Requests */}
+      {sentRequests.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sent Requests ({sentRequests.length})</Text>
+          <View style={styles.requestsContainer}>
+            {sentRequests.map((request) => (
+              <View key={request.id} style={styles.requestItem}>
+                <View style={styles.requestUserInfo}>
+                  <Ionicons name="person-circle" size={40} color="#A4D65E" />
+                  <View style={styles.requestUserText}>
+                    <Text style={styles.requestUsername}>{request.recipientData.username}</Text>
+                    <Text style={styles.requestSubtext}>request pending</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.requestButton, styles.cancelButton]}
+                  onPress={() => cancelSentRequest(request)}
+                >
+                  <Ionicons name="close" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Friends List */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Friends ({friendsList.length})</Text>
+        {loadingFriends ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading friends...</Text>
+          </View>
+        ) : friendsList.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="people" size={48} color="#6B7280" />
+            <Text style={styles.emptyText}>No friends yet</Text>
+            <Text style={styles.emptySubtext}>Add friends to see them here</Text>
+          </View>
+        ) : (
+          <View style={styles.friendsContainer}>
+            {friendsList.map((friend) => (
+              <View key={friend.id} style={styles.friendItem}>
+                <View style={styles.friendUserInfo}>
+                  <Ionicons name="person-circle" size={40} color="#A4D65E" />
+                  <View style={styles.friendUserText}>
+                    <Text style={styles.friendUsername}>{friend.username}</Text>
+                    <Text style={styles.friendSubtext}>@{friend.handle}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeFriendButton}
+                  onPress={() => removeFriend(friend)}
+                >
+                  <Ionicons name="person-remove" size={20} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+            ))}
           </View>
         )}
       </View>
+    </ScrollView>
+  );
 
-      {/* Complete Competition Button - Only show for owner if not completed */}
-      {competition.ownerId === user.uid && competition.status !== 'completed' && (
-        <View style={styles.completeButtonContainer}>
-          <TouchableOpacity 
-            style={styles.completeButton}
-            onPress={handleCompleteCompetition}
-          >
-            <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
-            <Text style={styles.completeButtonText}>Complete Competition</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+  return (
+    <View style={styles.container}>
+      <Header title={profile.username} showProfileIcon />
 
-      {/* Show completion status if already completed */}
-      {competition.status === 'completed' && (
-        <View style={styles.completedBanner}>
-          <Ionicons name="trophy" size={20} color="#FFD700" />
-          <Text style={styles.completedText}>Competition Completed</Text>
-        </View>
-      )}
-      
-      <View style={styles.rankingsContainer}>
-        <Text style={styles.rankingsTitle}>Rankings</Text>
-        <ScrollView 
-          style={styles.rankingsList}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={['#A4D65E']} // Android
-              tintColor="#A4D65E" // iOS
-            />
-          }
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'profile' && styles.activeTab]}
+          onPress={() => setActiveTab('profile')}
         >
-          {rankings.length === 0 ? (
-            <Text style={styles.emptyText}>No submissions yet. Be the first to earn points!</Text>
-          ) : (
-            restOfRankings.map(user => (
-              <View 
-                key={user.id} 
-                style={[
-                  styles.rankingItem, 
-                  user.isCurrentUser && styles.currentUserRanking
-                ]}
-              >
-                <Text style={styles.rankingPosition}>{user.position}</Text>
-                <View style={styles.rankingUserImageContainer}>
-                  <Ionicons name="person-circle" size={36} color="#777" />
-                </View>
-                <Text style={[
-                  styles.rankingUserName,
-                  user.isCurrentUser && styles.currentUserText
-                ]}>
-                  {user.isCurrentUser ? 'You' : user.name}
-                </Text>
-                <Text style={[
-                  styles.rankingPoints,
-                  user.isCurrentUser && styles.currentUserText
-                ]}>
-                  {user.points.toFixed(0)} pts
-                </Text>
-              </View>
-            ))
+          <Ionicons 
+            name="person" 
+            size={20} 
+            color={activeTab === 'profile' ? '#A4D65E' : '#6B7280'} 
+          />
+          <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>
+            Profile
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
+          onPress={() => setActiveTab('friends')}
+        >
+          <Ionicons 
+            name="people" 
+            size={20} 
+            color={activeTab === 'friends' ? '#A4D65E' : '#6B7280'} 
+          />
+          <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
+            Friends
+          </Text>
+          {pendingRequests.length > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{pendingRequests.length}</Text>
+            </View>
           )}
-        </ScrollView>
+        </TouchableOpacity>
       </View>
+
+      {/* Tab Content */}
+      {activeTab === 'profile' ? renderProfileTab() : renderFriendsTab()}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F8F8',
+  container: { flex: 1, backgroundColor: '#F8F8F8' },
+  
+  // Tab Navigation
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 4,
   },
-  loadingContainer: {
+  tab: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    position: 'relative',
+  },
+  activeTab: {
+    backgroundColor: '#F0F9E8',
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginLeft: 8,
+  },
+  activeTabText: {
+    color: '#A4D65E',
+    fontWeight: '600',
+  },
+  badge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+
+  // Common
+  scrollView: { flex: 1, paddingHorizontal: 16 },
+  section: { marginTop: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center' },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23', marginBottom: 12 },
+  loadingContainer: { padding: 20, alignItems: 'center' },
+  loadingText: { color: '#6B7280', fontSize: 16 },
+
+  // Profile Tab
+  profileCard: { 
+    backgroundColor: '#A4D65E', 
+    borderRadius: 12, 
+    padding: 16, 
+    flexDirection: 'row', 
+    alignItems: 'center' 
+  },
+  profileImageContainer: { 
+    width: 60, 
+    height: 60, 
+    borderRadius: 30, 
+    backgroundColor: '#FFFFFF', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 16 
+  },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23' },
+  profileUsername: { fontSize: 14, color: '#1A1E23', opacity: 0.8 },
+  
+  // Stats Grid
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  statCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    flex: 1,
+    minWidth: '45%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  winsCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFD700',
+  },
+  lossesCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6B6B',
+  },
+  rateCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#A4D65E',
+  },
+  totalCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#6B7280',
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1A1E23',
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  statsInfoText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 12,
+    fontStyle: 'italic',
+  },
+  errorContainer: {
+    backgroundColor: '#FFF2F2',
+    borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
   },
-  loadingText: {
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  retryButton: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  
+  // About You
+  statsContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  statItem: { marginBottom: 16 },
+  statLabelSmall: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
+  statValueContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  statValue: { fontSize: 16, fontWeight: '500', color: '#1A1E23', flex: 1 },
+  editableInput: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#A4D65E',
+    paddingVertical: 4,
+  },
+  statIcon: { marginLeft: 8 },
+  editButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 16,
+  },
+  editBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A4D65E',
+  },
+  saveBtn: {
+    backgroundColor: '#A4D65E',
+  },
+  editBtnText: { color: '#A4D65E', fontWeight: '600' },
+  saveBtnText: { color: '#FFFFFF' },
+  
+  // Account Options
+  accountOptions: { backgroundColor: '#FFFFFF', borderRadius: 12, overflow: 'hidden' },
+  accountOption: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F3F4F6' 
+  },
+  accountOptionIcon: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: '#F3F4F6', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 12 
+  },
+  accountOptionContent: { flex: 1 },
+  accountOptionTitle: { fontSize: 16, fontWeight: '500', color: '#1A1E23' },
+  accountOptionSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+
+  // Friends Tab
+  addFriendContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+  },
+  addFriendSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  addFriendRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  addFriendInput: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 12,
     fontSize: 16,
-    color: '#666',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  addFriendButton: {
+    backgroundColor: '#A4D65E',
+    borderRadius: 8,
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  requestsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  requestItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  requestUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  requestUserText: {
+    marginLeft: 12,
+  },
+  requestUsername: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1A1E23',
+  },
+  requestSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  requestButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptButton: {
+    backgroundColor: '#A4D65E',
+  },
+  rejectButton: {
+    backgroundColor: '#FF6B6B',
+  },
+  cancelButton: {
+    backgroundColor: '#6B7280',
+  },
+
+  friendsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  friendUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  friendUserText: {
+    marginLeft: 12,
+  },
+  friendUsername: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1A1E23',
+  },
+  friendSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  removeFriendButton: {
+    padding: 8,
+  },
+
+  emptyContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 32,
+    alignItems: 'center',
   },
   emptyText: {
-    textAlign: 'center',
-    color: '#666',
-    marginTop: 20,
-    fontSize: 16,
-  },
-  podiumContainer: {
-    backgroundColor: '#1A1E23',
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-  podiumIcon: {
-    marginBottom: 10,
-  },
-  topThreeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    width: '100%',
-    paddingHorizontal: 20,
-  },
-  topUserContainer: {
-    alignItems: 'center',
-    marginHorizontal: 5,
-    flex: 1,
-  },
-  firstPlaceContainer: {
-    marginBottom: 0,
-  },
-  secondPlaceContainer: {
-    marginBottom: 15,
-  },
-  thirdPlaceContainer: {
-    marginBottom: 25,
-  },
-  userImageContainer: {
-    position: 'relative',
-    marginBottom: 5,
-  },
-  positionBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#A4D65E',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  firstPlaceBadge: {
-    backgroundColor: '#FFD700',
-  },
-  secondPlaceBadge: {
-    backgroundColor: '#C0C0C0',
-  },
-  thirdPlaceBadge: {
-    backgroundColor: '#CD7F32',
-  },
-  positionText: {
-    color: '#1A1E23',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  userName: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 2,
-  },
-  pointsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  pointsText: {
-    color: '#A4D65E',
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  completeButtonContainer: {
-    padding: 16,
-    backgroundColor: '#1A1E23',
-  },
-  completeButton: {
-    backgroundColor: '#A4D65E',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  completeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  completedBanner: {
-    backgroundColor: '#FFF8E1',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  completedText: {
-    color: '#F57C00',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  rankingsContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-  },
-  rankingsTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '500',
     color: '#1A1E23',
-    marginBottom: 15,
+    marginTop: 12,
   },
-  rankingsList: {
-    flex: 1,
-  },
-  rankingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-  },
-  currentUserRanking: {
-    backgroundColor: '#A4D65E',
-  },
-  rankingPosition: {
-    width: 30,
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-  },
-  rankingUserImageContainer: {
-    marginRight: 12,
-  },
-  rankingUserName: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1A1E23',
-  },
-  rankingPoints: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-  },
-  currentUserText: {
-    color: '#1A1E23',
+  emptySubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
   },
 });
 
-export default LeaderboardScreen;
