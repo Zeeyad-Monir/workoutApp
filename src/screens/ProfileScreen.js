@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Header } from '../components';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,7 +28,8 @@ import {
   arrayUnion,
   arrayRemove,
   getDoc,
-  serverTimestamp
+  serverTimestamp,
+  getCountFromServer,
 } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 
@@ -46,20 +48,24 @@ export default function ProfileScreen({ route }) {
     }
   }, [route?.params?.tab]);
 
-  // Profile state - with wins/losses that are READ-ONLY from Firestore
+  // Profile state - NO LONGER storing wins/losses
   const [profile, setProfile] = useState({
     username: '',
     handle: '',
     favouriteWorkout: '',
-    wins: 0,
-    losses: 0,
-    totals: 0,
     friends: [],
-    lastUpdated: null,
   });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
+
+  // Competition stats - computed on demand
+  const [competitionStats, setCompetitionStats] = useState({
+    wins: 0,
+    losses: 0,
+    loading: true,
+    error: null,
+  });
 
   // Friends state
   const [friendsList, setFriendsList] = useState([]);
@@ -69,7 +75,70 @@ export default function ProfileScreen({ route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingFriends, setLoadingFriends] = useState(false);
 
-  /* ----- Real-time profile subscription with wins/losses ----- */
+  /* ----- Compute wins and losses on demand ----- */
+  const fetchCompetitionStats = async () => {
+    if (!user) return;
+    
+    setCompetitionStats(prev => ({ ...prev, loading: true, error: null }));
+    
+    try {
+      // Query for wins (competitions where user is the winner)
+      const winsQuery = query(
+        collection(db, 'competitions'),
+        where('status', '==', 'completed'),
+        where('winnerId', '==', user.uid)
+      );
+      
+      // Get count of wins
+      const winsSnapshot = await getCountFromServer(winsQuery);
+      const winsCount = winsSnapshot.data().count;
+      
+      // For losses, we need to fetch completed competitions where user participated but didn't win
+      // Due to Firestore limitations with array-contains + other conditions in counts,
+      // we'll fetch the actual docs and count client-side
+      const participatedQuery = query(
+        collection(db, 'competitions'),
+        where('status', '==', 'completed'),
+        where('participants', 'array-contains', user.uid)
+      );
+      
+      const participatedSnapshot = await getDocs(participatedQuery);
+      
+      // Count losses (participated but not winner)
+      let lossesCount = 0;
+      participatedSnapshot.forEach(doc => {
+        const competition = doc.data();
+        if (competition.winnerId && competition.winnerId !== user.uid) {
+          lossesCount++;
+        }
+      });
+      
+      setCompetitionStats({
+        wins: winsCount,
+        losses: lossesCount,
+        loading: false,
+        error: null,
+      });
+      
+    } catch (error) {
+      console.error('Error fetching competition stats:', error);
+      setCompetitionStats({
+        wins: 0,
+        losses: 0,
+        loading: false,
+        error: 'Failed to load stats',
+      });
+    }
+  };
+
+  // Fetch competition stats on mount and when user changes
+  useEffect(() => {
+    if (user && activeTab === 'profile') {
+      fetchCompetitionStats();
+    }
+  }, [user, activeTab]);
+
+  /* ----- Real-time profile subscription (without wins/losses) ----- */
   useEffect(() => {
     if (!user) return;
     const ref = doc(db, 'users', user.uid);
@@ -82,11 +151,7 @@ export default function ProfileScreen({ route }) {
             username: userData.username || '',
             handle: userData.handle || '',
             favouriteWorkout: userData.favouriteWorkout || '',
-            wins: userData.wins || 0,
-            losses: userData.losses || 0,
-            totals: userData.totals || 0,
             friends: userData.friends || [],
-            lastUpdated: userData.lastUpdated,
           });
           
           // Fetch friend details when friends array changes
@@ -96,14 +161,11 @@ export default function ProfileScreen({ route }) {
             setFriendsList([]);
           }
         } else {
-          // Create initial user profile without wins/losses (backend will manage those)
+          // Create initial user profile
           const initialData = {
             username: user.displayName || user.email.split('@')[0],
             handle: (user.displayName || user.email.split('@')[0]).replace(/\s+/g, '').toLowerCase(),
             favouriteWorkout: '',
-            wins: 0,
-            losses: 0,
-            totals: 0,
             friends: [],
           };
           setDoc(ref, initialData)
@@ -297,7 +359,6 @@ export default function ProfileScreen({ route }) {
   const saveEdit = async () => {
     try {
       const ref = doc(db, 'users', user.uid);
-      // Only update favourite workout - wins/losses are backend-managed
       await updateDoc(ref, {
         favouriteWorkout: draft.favouriteWorkout || ''
       });
@@ -526,11 +587,15 @@ export default function ProfileScreen({ route }) {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
+      // Refresh competition stats
+      await fetchCompetitionStats();
+      
+      // Refresh friends if needed
       if (profile.friends?.length > 0) {
         await fetchFriendsDetails(profile.friends);
       }
     } catch (error) {
-      console.error('Error refreshing friends:', error);
+      console.error('Error refreshing:', error);
     } finally {
       setRefreshing(false);
     }
@@ -538,35 +603,26 @@ export default function ProfileScreen({ route }) {
 
   // Calculate win rate
   const getWinRate = () => {
-    const total = profile.wins + profile.losses;
+    const total = competitionStats.wins + competitionStats.losses;
     if (total === 0) return 'N/A';
-    const rate = (profile.wins / total) * 100;
+    const rate = (competitionStats.wins / total) * 100;
     return `${Math.round(rate)}%`;
-  };
-
-  // Format last updated time
-  const getLastUpdatedText = () => {
-    if (!profile.lastUpdated) return null;
-    
-    const date = profile.lastUpdated.toDate ? profile.lastUpdated.toDate() : new Date(profile.lastUpdated);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'Updated just now';
-    if (diffMins < 60) return `Updated ${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-    if (diffHours < 24) return `Updated ${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `Updated ${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-    
-    return `Updated on ${date.toLocaleDateString()}`;
   };
 
   if (loading) return null;
 
   const renderProfileTab = () => (
-    <ScrollView style={styles.scrollView}>
+    <ScrollView 
+      style={styles.scrollView}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={['#A4D65E']}
+          tintColor="#A4D65E"
+        />
+      }
+    >
       {/* Profile card */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Profile</Text>
@@ -581,38 +637,61 @@ export default function ProfileScreen({ route }) {
         </View>
       </View>
 
-      {/* Competition Stats - READ ONLY, Updated by Backend */}
+      {/* Competition Stats - COMPUTED ON DEMAND */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Competition Stats</Text>
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, styles.winsCard]}>
-            <Ionicons name="trophy" size={32} color="#FFD700" />
-            <Text style={styles.statNumber}>{profile.wins}</Text>
-            <Text style={styles.statLabel}>Wins</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.lossesCard]}>
-            <Ionicons name="trending-down" size={32} color="#FF6B6B" />
-            <Text style={styles.statNumber}>{profile.losses}</Text>
-            <Text style={styles.statLabel}>Losses</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.rateCard]}>
-            <Ionicons name="stats-chart" size={32} color="#A4D65E" />
-            <Text style={styles.statNumber}>{getWinRate()}</Text>
-            <Text style={styles.statLabel}>Win Rate</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.totalCard]}>
-            <Ionicons name="bar-chart" size={32} color="#6B7280" />
-            <Text style={styles.statNumber}>{profile.wins + profile.losses}</Text>
-            <Text style={styles.statLabel}>Total</Text>
-          </View>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Competition Stats</Text>
+          {competitionStats.loading && (
+            <ActivityIndicator size="small" color="#A4D65E" style={{ marginLeft: 10 }} />
+          )}
         </View>
         
-        {profile.lastUpdated && (
-          <Text style={styles.lastUpdatedText}>{getLastUpdatedText()}</Text>
+        {competitionStats.error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{competitionStats.error}</Text>
+            <TouchableOpacity onPress={fetchCompetitionStats} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, styles.winsCard]}>
+              <Ionicons name="trophy" size={32} color="#FFD700" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.wins}
+              </Text>
+              <Text style={styles.statLabel}>Wins</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.lossesCard]}>
+              <Ionicons name="trending-down" size={32} color="#FF6B6B" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.losses}
+              </Text>
+              <Text style={styles.statLabel}>Losses</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.rateCard]}>
+              <Ionicons name="stats-chart" size={32} color="#A4D65E" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : getWinRate()}
+              </Text>
+              <Text style={styles.statLabel}>Win Rate</Text>
+            </View>
+            
+            <View style={[styles.statCard, styles.totalCard]}>
+              <Ionicons name="bar-chart" size={32} color="#6B7280" />
+              <Text style={styles.statNumber}>
+                {competitionStats.loading ? '...' : competitionStats.wins + competitionStats.losses}
+              </Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+          </View>
         )}
+        
+        <Text style={styles.statsInfoText}>
+          Stats are calculated from your completed competitions
+        </Text>
       </View>
 
       {/* About You - Only favourite workout is editable */}
@@ -911,6 +990,7 @@ const styles = StyleSheet.create({
   // Common
   scrollView: { flex: 1, paddingHorizontal: 16 },
   section: { marginTop: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center' },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23', marginBottom: 12 },
   loadingContainer: { padding: 20, alignItems: 'center' },
   loadingText: { color: '#6B7280', fontSize: 16 },
@@ -982,12 +1062,34 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 4,
   },
-  lastUpdatedText: {
+  statsInfoText: {
     fontSize: 12,
     color: '#999',
     textAlign: 'center',
     marginTop: 12,
     fontStyle: 'italic',
+  },
+  errorContainer: {
+    backgroundColor: '#FFF2F2',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  retryButton: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   
   // About You
