@@ -4,6 +4,9 @@ import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
+import TabSelector from '../components/TabSelector';
+import CompetitionResultsGraph from '../components/CompetitionResultsGraph';
+import { processSubmissionsForGraph } from '../utils/graphDataProcessor';
 import { db } from '../firebase';
 import {
   collection,
@@ -39,6 +42,10 @@ const LeaderboardScreen = ({ route, navigation }) => {
   const [refreshTimeout, setRefreshTimeout] = useState(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const [visibility, setVisibility] = useState(null);
+  const [activeResultTab, setActiveResultTab] = useState('leaderboard');
+  const [graphData, setGraphData] = useState(null);
+  const [allSubmissions, setAllSubmissions] = useState([]);
+  const [userMap, setUserMap] = useState({});
 
   /* ---------------- refresh handler -------------------- */
   const onRefresh = () => {
@@ -259,13 +266,16 @@ const LeaderboardScreen = ({ route, navigation }) => {
       async (snapshot) => {
         try {
           // Get all submissions
-          const allSubmissions = snapshot.docs.map(doc => ({
+          const submissions = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
           
+          // Store all submissions for graph processing
+          setAllSubmissions(submissions);
+          
           // Filter submissions based on visibility rules, always showing user's own
-          const visibleSubmissions = filterVisibleSubmissionsWithSelf(allSubmissions, competition, user.uid);
+          const visibleSubmissions = filterVisibleSubmissionsWithSelf(submissions, competition, user.uid);
           
           // Aggregate points by user (only from visible submissions)
           const pointsByUser = {};
@@ -280,10 +290,12 @@ const LeaderboardScreen = ({ route, navigation }) => {
           });
 
           // Fetch user data for all participants
+          const usersMap = {};
           const userDataPromises = competition.participants.map(async (uid) => {
             try {
               const userDoc = await getDoc(doc(db, 'users', uid));
               const userData = userDoc.exists() ? userDoc.data() : {};
+              usersMap[uid] = userData;
               
               return {
                 id: uid,
@@ -293,6 +305,7 @@ const LeaderboardScreen = ({ route, navigation }) => {
               };
             } catch (error) {
               console.error('Error fetching user:', error);
+              usersMap[uid] = { username: 'Unknown User' };
               return {
                 id: uid,
                 name: 'Unknown User',
@@ -313,6 +326,7 @@ const LeaderboardScreen = ({ route, navigation }) => {
             }));
 
           setRankings(sortedRankings);
+          setUserMap(usersMap); // Store user map for graph processing
           setLoading(false);
           stopRefreshing(); // Stop refresh spinner when data loads
         } catch (error) {
@@ -337,33 +351,26 @@ const LeaderboardScreen = ({ route, navigation }) => {
     };
   }, [competition?.id, competition?.participants, user.uid]);
 
+  // Process data for graphs when tab changes or data updates
+  useEffect(() => {
+    if (activeResultTab === 'graphs' && allSubmissions.length > 0 && Object.keys(userMap).length > 0) {
+      const data = processSubmissionsForGraph(allSubmissions, competition, userMap);
+      setGraphData(data);
+    }
+  }, [activeResultTab, allSubmissions, userMap, competition]);
+
   // Separate top 3 from the rest
   const topThree = rankings.slice(0, 3);
   const restOfRankings = rankings.slice(3);
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <Header 
-          title="Leaderboard" 
-          showBackButton={true} 
-          onBackPress={() => navigation.goBack()}
-        />
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading rankings...</Text>
-        </View>
-      </View>
-    );
-  }
+  // Tab configuration
+  const resultTabs = [
+    { id: 'leaderboard', label: 'Leaderboard' },
+    { id: 'graphs', label: 'Graphs' }
+  ];
 
-  return (
-    <View style={styles.container}>
-      <Header 
-        title="Leaderboard" 
-        showBackButton={true} 
-        onBackPress={() => navigation.goBack()}
-      />
-      
+  const renderLeaderboardContent = () => (
+    <>
       {/* Visibility Status Banner */}
       {visibility && visibility.isInHiddenPeriod && (
         <View style={styles.visibilityBanner}>
@@ -493,6 +500,66 @@ const LeaderboardScreen = ({ route, navigation }) => {
           )}
         </ScrollView>
       </View>
+    </>
+  );
+
+  const renderGraphsContent = () => {
+    if (!graphData) {
+      return (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Processing graph data...</Text>
+        </View>
+      );
+    }
+
+    return (
+      <CompetitionResultsGraph
+        startAt={graphData.startAt}
+        endAt={graphData.endAt}
+        tickMode={graphData.tickMode}
+        series={graphData.series}
+        ticks={graphData.ticks}
+      />
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header 
+          title="Leaderboard" 
+          showBackButton={true} 
+          onBackPress={() => navigation.goBack()}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading rankings...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Header 
+        title="Leaderboard" 
+        showBackButton={true} 
+        onBackPress={() => navigation.goBack()}
+      />
+      
+      {/* Show tabs only when competition is completed */}
+      {competition.status === 'completed' && (
+        <TabSelector
+          tabs={resultTabs}
+          activeTab={activeResultTab}
+          onTabChange={setActiveResultTab}
+        />
+      )}
+      
+      {/* Render content based on active tab */}
+      {competition.status === 'completed' && activeResultTab === 'graphs' 
+        ? renderGraphsContent()
+        : renderLeaderboardContent()
+      }
     </View>
   );
 };

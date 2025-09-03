@@ -566,99 +566,88 @@ export default function ProfileScreen({ route, navigation }) {
   if (loading) return null;
 
   const renderProfileTab = () => (
-    <ScrollView style={styles.scrollView}>
-      {/* Profile card */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile</Text>
-        <View style={styles.profileCard}>
-          <View style={styles.profileImageContainer}>
-            <Ionicons name="person-circle" size={60} color="#A4D65E" />
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{profile.username}</Text>
-            <Text style={styles.profileUsername}>@{profile.handle}</Text>
-          </View>
-        </View>
+   // Replace the Profile section in renderProfileTab with:
+<ScrollView style={styles.scrollView}>
+  {/* Profile header with proper spacing */}
+  <View style={styles.profileCard}>
+    <View style={styles.profileImageContainer}>
+      <Ionicons name="person" size={38} color="#FFFFFF" />
+    </View>
+    <View style={styles.profileInfo}>
+      <Text style={styles.profileName} numberOfLines={1}>
+        {profile.username}
+      </Text>
+      <Text style={styles.profileUsername}>@{profile.handle}</Text>
+    </View>
+  </View>
+
+  {/* Hero Row - Equal height cards */}
+  <View style={styles.highlightCardsContainer}>
+    {/* Favourite Workout Card */}
+    <View style={[styles.highlightCard, styles.favouriteWorkoutCard]}>
+      <View>
+        <Text style={styles.favouriteWorkoutLabel}>Favourite Workout</Text>
+        <Text style={styles.favouriteWorkoutValue} numberOfLines={1}>
+          {profile.favouriteWorkout || 'Running'}
+        </Text>
       </View>
-
-      {/* Competition Stats - READ ONLY, Updated by Backend */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Competition Stats</Text>
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, styles.winsCard]}>
-            <Ionicons name="trophy" size={32} color="#FFD700" />
-            <Text style={styles.statNumber}>{profile.wins}</Text>
-            <Text style={styles.statLabel}>Wins</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.lossesCard]}>
-            <Ionicons name="trending-down" size={32} color="#FF6B6B" />
-            <Text style={styles.statNumber}>{profile.losses}</Text>
-            <Text style={styles.statLabel}>Losses</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.rateCard]}>
-            <Ionicons name="stats-chart" size={32} color="#A4D65E" />
-            <Text style={styles.statNumber}>{getWinRate()}</Text>
-            <Text style={styles.statLabel}>Win Rate</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.totalCard]}>
-            <Ionicons name="bar-chart" size={32} color="#6B7280" />
-            <Text style={styles.statNumber}>{profile.wins + profile.losses}</Text>
-            <Text style={styles.statLabel}>Total</Text>
-          </View>
-        </View>
-        
-        {profile.lastUpdated && (
-          <Text style={styles.lastUpdatedText}>{getLastUpdatedText()}</Text>
-        )}
+      <View style={styles.favouriteWorkoutIconContainer}>
+        <Ionicons name="fitness" size={52} color="#A4D65E" />
       </View>
-
-      {/* About You - Only favourite workout is editable */}
-      <View style={styles.section}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={styles.sectionTitle}>About You</Text>
-          {!editing && (
-            <TouchableOpacity onPress={startEdit}>
-              <Ionicons name="pencil" size={20} color="#6B7280" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabelSmall}>Favourite Workout</Text>
-            <View style={styles.statValueContainer}>
-              {editing ? (
-                <TextInput
-                  style={[styles.statValue, styles.editableInput]}
-                  value={draft.favouriteWorkout}
-                  onChangeText={t => setDraft({ ...draft, favouriteWorkout: t })}
-                  placeholder="Enter your favourite workout"
-                  placeholderTextColor="#999"
-                />
-              ) : (
-                <Text style={styles.statValue}>
-                  {profile.favouriteWorkout || 'Not set'}
-                </Text>
-              )}
-              <Ionicons name="fitness" size={24} color="#A4D65E" style={styles.statIcon} />
-            </View>
-          </View>
-
-          {editing && (
-            <View style={styles.editButtons}>
-              <TouchableOpacity onPress={cancelEdit} style={styles.editBtn}>
-                <Text style={styles.editBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={saveEdit} style={[styles.editBtn, styles.saveBtn]}>
-                <Text style={[styles.editBtnText, styles.saveBtnText]}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+    </View>
+    
+    {/* Competitions Won Card */}
+    <View style={[styles.highlightCard, styles.competitionsWonCard]}>
+      <View>
+        <Text style={styles.competitionsWonLabel}>Competitions Won</Text>
+        <Text style={styles.competitionsWonValue} numberOfLines={1}>
+          {profile.wins} Wins
+        </Text>
       </View>
+      <View style={styles.competitionsWonIconContainer}>
+        <Ionicons name="trophy" size={44} color="#FFFFFF" />
+      </View>
+    </View>
+  </View>
+
+  {/* Stats Section with proper sizing */}
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>Stats</Text>
+    <View style={styles.statsGrid}>
+      <View style={styles.statCard}>
+        <View style={styles.statNumberContainer}>
+          <Text style={styles.statNumber} numberOfLines={1}>
+            {profile.losses}
+          </Text>
+        </View>
+        <Text style={styles.statLabel}>Losses</Text>
+      </View>
+      
+      <View style={styles.statCard}>
+        <View style={styles.statNumberContainer}>
+          <Text style={styles.statNumber} numberOfLines={1}>
+            {getWinRate()}
+          </Text>
+        </View>
+        <Text style={styles.statLabel}>Win Rate</Text>
+      </View>
+      
+      <View style={styles.statCard}>
+        <View style={styles.statNumberContainer}>
+          <Text style={styles.statNumber} numberOfLines={1}>
+            {profile.wins + profile.losses}
+          </Text>
+        </View>
+        <Text style={styles.statLabelTwoLine}>
+          Total{'\n'}Competitions
+        </Text>
+      </View>
+    </View>
+    
+    {profile.lastUpdated && (
+      <Text style={styles.lastUpdatedText}>{getLastUpdatedText()}</Text>
+    )}
+  </View>
 
       {/* Account */}
       <View style={styles.section}>
@@ -876,29 +865,29 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
+    marginHorizontal: 20,
     marginTop: 16,
     borderRadius: 12,
-    padding: 4,
+    padding: 3,
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 9,
     position: 'relative',
   },
   activeTab: {
     backgroundColor: '#F0F9E8',
   },
   tabText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: '#6B7280',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   activeTabText: {
     color: '#A4D65E',
@@ -906,109 +895,208 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: '#FF6B6B',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 'bold',
   },
 
   // Common
-  scrollView: { flex: 1, paddingHorizontal: 16 },
-  section: { marginTop: 24 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23', marginBottom: 12 },
+  scrollView: { 
+    flex: 1, 
+    paddingHorizontal: 20  // Container padding: 20pt
+  },
+  section: { 
+    marginTop: 24  // Vertical section spacing: 24pt
+  },
+  sectionTitle: { 
+    fontSize: 20,  // Section title: 20pt
+    fontWeight: '600', 
+    color: '#000000', 
+    marginBottom: 8  // 8pt bottom margin
+  },
   loadingContainer: { padding: 20, alignItems: 'center' },
-  loadingText: { color: '#6B7280', fontSize: 16 },
+  loadingText: { color: '#6B7280', fontSize: 14 },
 
-  // Profile Tab
+  // Profile Header - Proper sizing
   profileCard: { 
-    backgroundColor: '#A4D65E', 
-    borderRadius: 12, 
-    padding: 16, 
+    backgroundColor: 'transparent', 
     flexDirection: 'row', 
-    alignItems: 'center' 
+    alignItems: 'center',
+    marginBottom: 24,  // 24pt gap to hero row
   },
   profileImageContainer: { 
-    width: 60, 
-    height: 60, 
-    borderRadius: 30, 
-    backgroundColor: '#FFFFFF', 
+    width: 72,  // Avatar: 72pt diameter
+    height: 72, 
+    borderRadius: 36, 
+    backgroundColor: '#FF6B6B', 
     justifyContent: 'center', 
     alignItems: 'center', 
-    marginRight: 16 
+    marginRight: 16,  // 16pt gap from avatar to name
+    borderWidth: 6,  // 6pt ring
+    borderColor: '#A4D65E',
   },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: 'bold', color: '#1A1E23' },
-  profileUsername: { fontSize: 14, color: '#1A1E23', opacity: 0.8 },
-  
-  // Stats Grid
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
+  profileName: { 
+    fontSize: 30,  // Name: 28-32pt
+    fontWeight: '600', 
+    color: '#000000',
+    lineHeight: 36,
   },
-  statCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
+  profileUsername: { 
+    fontSize: 15,  // Handle: 14-16pt
+    fontWeight: '500',
+    color: '#6B7280', 
+    marginTop: 2 
+  },
+  
+  // Hero Row - Two equal cards
+  highlightCardsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 16,  // Gap between columns: 16pt
+    marginBottom: 24,  // 24pt gap to stats section
+  },
+  highlightCard: {
     flex: 1,
-    minWidth: '45%',
+    borderRadius: 24,  // Corner radius: 24pt
+    padding: 16,  // Inner padding: 16pt
+    height: 172,  // Card height: 168-176pt
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
   },
-  winsCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#FFD700',
+  favouriteWorkoutCard: {
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'space-between',
   },
-  lossesCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#FF6B6B',
+  competitionsWonCard: {
+    backgroundColor: '#A4D65E',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  rateCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#A4D65E',
+  
+  // Favourite Workout Card Content
+  favouriteWorkoutContent: {
+    flex: 1,
   },
-  totalCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#6B7280',
+  favouriteWorkoutLabel: {
+    fontSize: 14,  // Top label: 14pt
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  favouriteWorkoutValue: {
+    fontSize: 28,  // Value: 28pt
+    fontWeight: '600',
+    color: '#A4D65E',
+  },
+  favouriteWorkoutIconContainer: {
+    alignItems: 'flex-start',
+  },
+  
+  // Competitions Won Card Content
+  competitionsWonContent: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  competitionsWonLabel: {
+    fontSize: 16,  // Title: 16pt
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  competitionsWonValue: {
+    fontSize: 32,  // Value: 32pt
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  competitionsWonIconContainer: {
+    alignItems: 'center',
+    marginBottom: 16,  // 16pt bottom inset
+  },
+  
+  // Stats Grid - Three equal cards
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,  // Gap between cards: 12pt
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,  // Corner radius: 16pt
+    padding: 12,  // Inner padding: 12pt
+    height: 128,  // Card height: 128pt
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  statNumberContainer: {
+    backgroundColor: '#E8F5D6',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-    marginTop: 8,
+    fontSize: 28,  // Value number: 28pt
+    fontWeight: '600',
+    color: '#000000',
   },
   statLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
+    fontSize: 14,  // Label: 12-14pt (using 14pt, value is 28pt = 2x)
+    fontWeight: '500',
+    color: '#000000',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   lastUpdatedText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
     textAlign: 'center',
-    marginTop: 12,
+    marginTop: 10,
     fontStyle: 'italic',
   },
   
-  // About You
-  statsContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  // About You section - Keep existing
+  statsContainer: { 
+    backgroundColor: '#FFFFFF', 
+    borderRadius: 12, 
+    padding: 16 
+  },
   statItem: { marginBottom: 16 },
-  statLabelSmall: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
-  statValueContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statValue: { fontSize: 16, fontWeight: '500', color: '#1A1E23', flex: 1 },
+  statLabelSmall: { 
+    fontSize: 14, 
+    color: '#6B7280', 
+    marginBottom: 4 
+  },
+  statValueContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center' 
+  },
+  statValue: { 
+    fontSize: 16, 
+    fontWeight: '500', 
+    color: '#1A1E23', 
+    flex: 1 
+  },
   editableInput: {
     borderBottomWidth: 1,
     borderBottomColor: '#A4D65E',
@@ -1034,8 +1122,12 @@ const styles = StyleSheet.create({
   editBtnText: { color: '#A4D65E', fontWeight: '600' },
   saveBtnText: { color: '#FFFFFF' },
   
-  // Account Options
-  accountOptions: { backgroundColor: '#FFFFFF', borderRadius: 12, overflow: 'hidden' },
+  // Account Options - Keep existing
+  accountOptions: { 
+    backgroundColor: '#FFFFFF', 
+    borderRadius: 12, 
+    overflow: 'hidden' 
+  },
   accountOption: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -1053,10 +1145,18 @@ const styles = StyleSheet.create({
     marginRight: 12 
   },
   accountOptionContent: { flex: 1 },
-  accountOptionTitle: { fontSize: 16, fontWeight: '500', color: '#1A1E23' },
-  accountOptionSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  accountOptionTitle: { 
+    fontSize: 16, 
+    fontWeight: '500', 
+    color: '#1A1E23' 
+  },
+  accountOptionSubtitle: { 
+    fontSize: 12, 
+    color: '#6B7280', 
+    marginTop: 2 
+  },
 
-  // Friends Tab
+  // Friends Tab - Keep existing
   addFriendContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
