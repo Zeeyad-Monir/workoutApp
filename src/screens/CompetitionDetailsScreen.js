@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, TextInput, Animated, Dimensions } from 'react-native';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../firebase';
@@ -27,6 +27,8 @@ import {
   getVisibilityMessage 
 } from '../utils/scoreVisibility';
 
+const screenWidth = Dimensions.get('window').width;
+
 const CompetitionDetailsScreen = ({ route, navigation }) => {
   const [activeTab, setActiveTab] = useState('me');
   const { competition } = route.params;
@@ -42,11 +44,38 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
   const [visibility, setVisibility] = useState(null);
   const [isCompleting, setIsCompleting] = useState(false);
 
+  // Tab animation
+  const tabAnimation = React.useRef(new Animated.Value(0)).current;
+
+  // Tab index mapping for 5 tabs
+  const getTabIndex = (tab) => {
+    switch(tab) {
+      case 'me': return 0;
+      case 'others': return 1;
+      case 'rank': return 2;
+      case 'add': return 3;
+      case 'rules': return 4;
+      default: return 0;
+    }
+  };
+
+  // Animate to new tab position
+  const animateToTab = (newTab) => {
+    const newIndex = getTabIndex(newTab);
+    Animated.spring(tabAnimation, {
+      toValue: newIndex,
+      tension: 50,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
+    setActiveTab(newTab);
+  };
+
   // Reset to 'me' tab when returning from submission
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       // Reset to 'me' tab when screen comes into focus
-      setActiveTab('me');
+      animateToTab('me');
     });
 
     return unsubscribe;
@@ -807,18 +836,39 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
       )}
       
       <View style={styles.tabContainer}>
+        {/* Animated sliding background */}
+        <Animated.View 
+          style={[
+            styles.tabSlider,
+            {
+              transform: [{
+                translateX: tabAnimation.interpolate({
+                  inputRange: [0, 1, 2, 3, 4],
+                  outputRange: [
+                    0, 
+                    (screenWidth - 32 - 8) / 5, 
+                    (screenWidth - 32 - 8) * 2 / 5,
+                    (screenWidth - 32 - 8) * 3 / 5,
+                    (screenWidth - 32 - 8) * 4 / 5
+                  ],
+                })
+              }]
+            }
+          ]}
+        />
+        
         {/* Me Tab */}
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'me' && styles.activeTab]} 
-          onPress={() => setActiveTab('me')}
+          style={styles.tab} 
+          onPress={() => animateToTab('me')}
         >
           <Text style={[styles.tabText, activeTab === 'me' && styles.activeTabText]}>Me</Text>
         </TouchableOpacity>
         
         {/* Others Tab */}
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'others' && styles.activeTab]} 
-          onPress={() => setActiveTab('others')}
+          style={styles.tab} 
+          onPress={() => animateToTab('others')}
         >
           <Text style={[styles.tabText, activeTab === 'others' && styles.activeTabText]}>Others</Text>
         </TouchableOpacity>
@@ -835,18 +885,18 @@ const CompetitionDetailsScreen = ({ route, navigation }) => {
         
         {/* Add Tab */}
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'add' && styles.activeTab]} 
+          style={styles.tab} 
           onPress={() => {
             navigation.navigate('SubmissionForm', { competition });
           }}
         >
-          <Text style={[styles.tabText, activeTab === 'add' && styles.activeTabText]}>Add</Text>
+          <Text style={styles.tabText}>Add</Text>
         </TouchableOpacity>
 
         {/* Rules Tab */}
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'rules' && styles.activeTab]} 
-          onPress={() => setActiveTab('rules')}
+          style={styles.tab} 
+          onPress={() => animateToTab('rules')}
         >
           <Text style={[styles.tabText, activeTab === 'rules' && styles.activeTabText]}>Rules</Text>
         </TouchableOpacity>
@@ -977,27 +1027,40 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#333',
-    padding: 5,
-    borderRadius: 25,
+    backgroundColor: '#F3F3F3',
     marginHorizontal: 16,
-    marginVertical: 16,
+    marginTop: 16,
+    height: 64,
+    borderRadius: 16,
+    padding: 4,
+    position: 'relative',
+  },
+  tabSlider: {
+    position: 'absolute',
+    width: (Dimensions.get('window').width - 32 - 8) / 5,
+    height: 56,
+    backgroundColor: '#F3F9EA',
+    borderRadius: 14,
+    top: 4,
+    left: 4,
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 20,
+    justifyContent: 'center',
+    borderRadius: 14,
+    zIndex: 1,
   },
   activeTab: {
-    backgroundColor: '#1A1E23',
+    // Removed backgroundColor - now handled by animated slider
   },
   tabText: {
-    color: '#777',
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#CACCCF',
   },
   activeTabText: {
-    color: '#A4D65E',
+    color: '#93D13C',
   },
   searchContainer: {
     flexDirection: 'row',
