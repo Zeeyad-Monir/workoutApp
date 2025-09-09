@@ -1,8 +1,7 @@
 //LeaderboardScreen.js
 
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
-import { Header, Button } from '../components';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert, SafeAreaView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { db } from '../firebase';
@@ -29,6 +28,56 @@ import {
   getLastRevealDate,
   formatRevealDate
 } from '../utils/scoreVisibility';
+
+// Design Tokens
+const colors = {
+  bgDark: '#1C1C1C',
+  bgPage: '#FFFFFF',
+  brandLime: '#A4E64F',
+  rankGold: '#FFD600',
+  rankSilver: '#A9A9A9',
+  rankBronze: '#B87333',
+  textPrimaryLight: '#FFFFFF',
+  textPrimaryDark: '#111111',
+  textMuted: '#9AA0A6',
+  textLightGray: '#E6E6E6',
+  borderLight: '#EAEAEA',
+  iconGray: '#333333',
+};
+
+const typography = {
+  h2: {
+    fontSize: 22,
+    fontWeight: '600',
+    fontFamily: Platform.select({ ios: 'System', android: 'System' }),
+  },
+  h3: {
+    fontSize: 20,
+    fontWeight: '600',
+    fontFamily: Platform.select({ ios: 'System', android: 'System' }),
+  },
+  bodyM: {
+    fontSize: 17,
+    fontWeight: '500',
+    fontFamily: Platform.select({ ios: 'System', android: 'System' }),
+  },
+  bodyMSemibold: {
+    fontSize: 17,
+    fontWeight: '600',
+    fontFamily: Platform.select({ ios: 'System', android: 'System' }),
+  },
+  bodyS: {
+    fontSize: 15,
+    fontWeight: '400',
+    fontFamily: Platform.select({ ios: 'System', android: 'System' }),
+  },
+};
+
+const spacing = {
+  base: 8,
+  radiusL: 16,
+  radiusXL: 20,
+};
 
 const LeaderboardScreen = ({ route, navigation }) => {
   const { competition } = route.params;
@@ -340,15 +389,11 @@ const LeaderboardScreen = ({ route, navigation }) => {
 
   // Separate top 3 from the rest
   const topThree = rankings.slice(0, 3);
-  const restOfRankings = rankings.slice(3);
+  const currentUserRanking = rankings.find(r => r.isCurrentUser);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <Header 
-          title="" 
-          backgroundColor="#F8F8F8"
-        />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading rankings...</Text>
         </View>
@@ -356,14 +401,83 @@ const LeaderboardScreen = ({ route, navigation }) => {
     );
   }
 
+  // Reorder top three for podium display: [2nd, 1st, 3rd]
+  const podiumOrder = [];
+  if (topThree[1]) podiumOrder.push(topThree[1]); // 2nd place
+  if (topThree[0]) podiumOrder.push(topThree[0]); // 1st place
+  if (topThree[2]) podiumOrder.push(topThree[2]); // 3rd place
+
   return (
     <View style={styles.container}>
-      <Header 
-        title="" 
-        backgroundColor="#F8F8F8"
-      />
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       
+      {/* Dark Header Block with Trophy */}
+      <SafeAreaView style={styles.headerBlock}>
+        {/* Trophy Icon */}
+        <View style={styles.trophyContainer}>
+          <Ionicons name="trophy" size={24} color={colors.brandLime} />
+        </View>
+        
+        {/* Podium Row - Top 3 */}
+        {topThree.length > 0 && (
+          <View style={styles.podiumRow}>
+            {podiumOrder.map((user, index) => {
+              if (!user) return <View key={index} style={styles.podiumColumn} />;
+              
+              const isFirst = user.position === 1;
+              const isSecond = user.position === 2;
+              const isThird = user.position === 3;
+              
+              return (
+                <View key={user.id} style={styles.podiumColumn}>
+                  {/* Avatar with Badge */}
+                  <View style={styles.avatarContainer}>
+                    <View style={[
+                      styles.avatar,
+                      isFirst && styles.avatarFirst,
+                      (isSecond || isThird) && styles.avatarOthers,
+                      { 
+                        width: isFirst ? 72 : 60,
+                        height: isFirst ? 72 : 60,
+                      }
+                    ]}>
+                      <Ionicons 
+                        name="person" 
+                        size={isFirst ? 36 : 30} 
+                        color={isFirst ? colors.textPrimaryLight : colors.textMuted}
+                      />
+                    </View>
+                    {/* Rank Badge */}
+                    <View style={[
+                      styles.rankBadge,
+                      isFirst && styles.rankBadgeGold,
+                      isSecond && styles.rankBadgeSilver,
+                      isThird && styles.rankBadgeBronze,
+                    ]}>
+                      <Text style={styles.rankBadgeText}>{user.position}</Text>
+                    </View>
+                  </View>
+                  
+                  {/* Name */}
+                  <Text style={[
+                    styles.podiumName,
+                    isFirst ? styles.podiumNameFirst : styles.podiumNameOthers
+                  ]} numberOfLines={1}>
+                    {user.name}
+                  </Text>
+                  
+                  {/* Points */}
+                  <View style={styles.podiumPointsContainer}>
+                    <Ionicons name="star" size={14} color={colors.brandLime} />
+                    <Text style={styles.podiumPoints}>{`${user.points.toFixed(0)} pts`}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </SafeAreaView>
+
       {/* Visibility Status Banner */}
       {visibility && visibility.isInHiddenPeriod && (
         <View style={styles.visibilityBanner}>
@@ -383,57 +497,6 @@ const LeaderboardScreen = ({ route, navigation }) => {
           </View>
         </View>
       )}
-      
-      <View style={styles.podiumContainer}>
-        <View style={styles.podiumIcon}>
-          <Ionicons name="trophy" size={40} color="#A4D65E" />
-        </View>
-        
-        {topThree.length > 0 && (
-          <View style={styles.topThreeContainer}>
-            {/* Reorder for podium display: 2nd, 1st, 3rd */}
-            {[1, 0, 2].map(index => {
-              const user = topThree[index];
-              if (!user) return <View key={index} style={{ flex: 1 }} />;
-              
-              return (
-                <View 
-                  key={user.id} 
-                  style={[
-                    styles.topUserContainer, 
-                    user.position === 1 && styles.firstPlaceContainer,
-                    user.position === 2 && styles.secondPlaceContainer,
-                    user.position === 3 && styles.thirdPlaceContainer,
-                  ]}
-                >
-                  <View style={styles.userImageContainer}>
-                    <Ionicons 
-                      name="person-circle" 
-                      size={user.position === 1 ? 70 : 60} 
-                      color={user.position === 1 ? "#FFD700" : "#FFFFFF"} 
-                    />
-                    <View style={[
-                      styles.positionBadge,
-                      user.position === 1 && styles.firstPlaceBadge,
-                      user.position === 2 && styles.secondPlaceBadge,
-                      user.position === 3 && styles.thirdPlaceBadge,
-                    ]}>
-                      <Text style={styles.positionText}>{user.position}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.userName}>{user.name}</Text>
-                  <View style={styles.pointsContainer}>
-                    <Ionicons name="star" size={14} color="#A4D65E" />
-                    <Text style={styles.pointsText}>
-                      {`${user.points.toFixed(0)} pts`}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </View>
 
       {/* Show completion status if already completed */}
       {competition.status === 'completed' && (
@@ -447,53 +510,38 @@ const LeaderboardScreen = ({ route, navigation }) => {
           )}
         </View>
       )}
-      
-      <View style={styles.rankingsContainer}>
+
+      {/* Rankings Section */}
+      <View style={styles.rankingsSection}>
         <Text style={styles.rankingsTitle}>Rankings</Text>
-        <ScrollView 
-          style={styles.rankingsList}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={['#A4D65E']} // Android
-              tintColor="#A4D65E" // iOS
-            />
-          }
-        >
-          {rankings.length === 0 ? (
-            <Text style={styles.emptyText}>No submissions yet. Be the first to earn points!</Text>
-          ) : (
-            restOfRankings.map(user => (
-              <View 
-                key={user.id} 
-                style={[
-                  styles.rankingItem, 
-                  user.isCurrentUser && styles.currentUserRanking
-                ]}
-              >
-                <Text style={styles.rankingPosition}>{user.position}</Text>
-                <View style={styles.rankingUserImageContainer}>
-                  <Ionicons name="person-circle" size={36} color="#777" />
-                </View>
-                <Text style={[
-                  styles.rankingUserName,
-                  user.isCurrentUser && styles.currentUserText
-                ]}>
-                  {user.isCurrentUser ? 'You' : user.name}
-                </Text>
-                <Text style={[
-                  styles.rankingPoints,
-                  user.isCurrentUser && styles.currentUserText
-                ]}>
-                  {`${user.points.toFixed(0)} pts`}
-                </Text>
+        
+        {/* Highlighted "You" Row */}
+        {currentUserRanking && (
+          <TouchableOpacity 
+            style={styles.youRow}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.youRowRank}>{currentUserRanking.position}</Text>
+            <View style={styles.youRowCenter}>
+              <View style={styles.youRowAvatar}>
+                <Ionicons name="person" size={16} color={colors.brandLime} />
               </View>
-            ))
-          )}
-        </ScrollView>
+              <Text style={styles.youRowName}>You</Text>
+            </View>
+            <Text style={styles.youRowPoints}>{`${currentUserRanking.points.toFixed(0)} pts`}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Empty State */}
+        {rankings.length === 0 && (
+          <Text style={styles.emptyText}>No submissions yet. Be the first to earn points!</Text>
+        )}
       </View>
+
+      {/* Flexible white space */}
+      <View style={{ flex: 1 }} />
+
+      {/* Bottom navigation is handled by the navigator */}
     </View>
   );
 };
@@ -501,7 +549,7 @@ const LeaderboardScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bgPage,
   },
   loadingContainer: {
     flex: 1,
@@ -510,156 +558,151 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
   },
-  emptyText: {
-    textAlign: 'center',
-    color: '#666',
-    marginTop: 20,
-    fontSize: 16,
+  
+  // Header Block
+  headerBlock: {
+    backgroundColor: colors.bgDark,
+    minHeight: 212,
+    maxHeight: 232,
   },
-  podiumContainer: {
-    backgroundColor: '#1A1E23',
-    paddingVertical: 20,
+  trophyContainer: {
     alignItems: 'center',
+    marginTop: spacing.base * 2, // 16px from safe area
   },
-  podiumIcon: {
-    marginBottom: 10,
-  },
-  topThreeContainer: {
+  
+  // Podium
+  podiumRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    width: '100%',
-    paddingHorizontal: 20,
+    marginTop: spacing.base * 2.5, // 20px
+    paddingBottom: spacing.base * 3,
   },
-  topUserContainer: {
-    alignItems: 'center',
-    marginHorizontal: 5,
+  podiumColumn: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
-  firstPlaceContainer: {
-    marginBottom: 0,
-  },
-  secondPlaceContainer: {
-    marginBottom: 15,
-  },
-  thirdPlaceContainer: {
-    marginBottom: 25,
-  },
-  userImageContainer: {
+  avatarContainer: {
     position: 'relative',
-    marginBottom: 5,
   },
-  positionBadge: {
+  avatar: {
+    borderRadius: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarFirst: {
+    backgroundColor: colors.rankGold,
+  },
+  avatarOthers: {
+    backgroundColor: colors.textPrimaryLight,
+  },
+  rankBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#A4D65E',
+    bottom: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  firstPlaceBadge: {
-    backgroundColor: '#FFD700',
+  rankBadgeGold: {
+    backgroundColor: colors.rankGold,
   },
-  secondPlaceBadge: {
-    backgroundColor: '#C0C0C0',
+  rankBadgeSilver: {
+    backgroundColor: colors.rankSilver,
   },
-  thirdPlaceBadge: {
-    backgroundColor: '#CD7F32',
+  rankBadgeBronze: {
+    backgroundColor: colors.rankBronze,
   },
-  positionText: {
-    color: '#1A1E23',
+  rankBadgeText: {
+    color: colors.textPrimaryDark,
+    fontSize: 12,
     fontWeight: 'bold',
-    fontSize: 14,
   },
-  userName: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 2,
+  podiumName: {
+    marginTop: spacing.base,
+    ...typography.bodyM,
   },
-  pointsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  pointsText: {
-    color: '#A4D65E',
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  completedBanner: {
-    backgroundColor: '#FFF8E1',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-  },
-  completedText: {
-    color: '#F57C00',
-    fontSize: 16,
+  podiumNameFirst: {
+    color: colors.textPrimaryLight,
     fontWeight: '600',
-    marginLeft: 8,
   },
-  winnerText: {
-    color: '#F57C00',
-    fontSize: 14,
+  podiumNameOthers: {
+    color: colors.textLightGray,
     fontWeight: '500',
-    width: '100%',
-    textAlign: 'center',
-    marginTop: 4,
   },
-  rankingsContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 20,
+  podiumPointsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  podiumPoints: {
+    color: colors.brandLime,
+    ...typography.bodyS,
+    marginLeft: 2,
+  },
+
+  // Rankings Section
+  rankingsSection: {
+    paddingHorizontal: spacing.base * 3, // 24px
+    paddingTop: spacing.base * 2, // 16px
   },
   rankingsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-    marginBottom: 15,
+    ...typography.h2,
+    color: colors.textPrimaryDark,
+    marginBottom: spacing.base * 2,
   },
-  rankingsList: {
-    flex: 1,
-  },
-  rankingItem: {
+  
+  // You Row
+  youRow: {
+    backgroundColor: colors.brandLime,
+    borderRadius: spacing.radiusXL,
+    height: 64,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
   },
-  currentUserRanking: {
-    backgroundColor: '#A4D65E',
+  youRowRank: {
+    ...typography.bodyMSemibold,
+    color: colors.textPrimaryDark,
+    width: 24,
   },
-  rankingPosition: {
-    width: 30,
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-  },
-  rankingUserImageContainer: {
-    marginRight: 12,
-  },
-  rankingUserName: {
+  youRowCenter: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.base * 1.5, // 12px gap
+  },
+  youRowAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.bgPage,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  youRowName: {
+    ...typography.bodyM,
+    color: colors.textPrimaryDark,
+    marginLeft: spacing.base * 1.5, // 12px
+  },
+  youRowPoints: {
+    ...typography.bodyMSemibold,
+    color: colors.textPrimaryDark,
+  },
+
+  // Empty state
+  emptyText: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    marginTop: spacing.base * 2.5,
     fontSize: 16,
-    color: '#1A1E23',
   },
-  rankingPoints: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A1E23',
-  },
-  currentUserText: {
-    color: '#1A1E23',
-  },
+
+  // Visibility Banner
   visibilityBanner: {
     backgroundColor: '#FF9800',
     paddingVertical: 10,
@@ -686,6 +729,30 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     opacity: 0.9,
+  },
+
+  // Completed Banner
+  completedBanner: {
+    backgroundColor: '#FFF8E1',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  completedText: {
+    color: '#F57C00',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  winnerText: {
+    color: '#F57C00',
+    fontSize: 14,
+    fontWeight: '500',
+    width: '100%',
+    textAlign: 'center',
+    marginTop: 4,
   },
 });
 
