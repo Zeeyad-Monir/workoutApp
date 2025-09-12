@@ -21,6 +21,7 @@ const OnboardingContent = ({
   onSkip,
   isLastStep,
   targetMeasurements,
+  preferredPosition = 'auto',
 }) => {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -29,7 +30,7 @@ const OnboardingContent = ({
   useEffect(() => {
     // Calculate optimal position based on target
     if (targetMeasurements) {
-      const optimalPos = calculateOptimalPosition(targetMeasurements);
+      const optimalPos = calculateOptimalPosition(targetMeasurements, preferredPosition);
       setPosition(optimalPos);
     } else {
       // Center if no target
@@ -56,7 +57,7 @@ const OnboardingContent = ({
     ]).start();
   }, [targetMeasurements, title]);
 
-  const calculateOptimalPosition = (measurements) => {
+  const calculateOptimalPosition = (measurements, preferred = 'auto') => {
     if (!measurements) {
       return { top: SCREEN_HEIGHT / 2 - ESTIMATED_CONTENT_HEIGHT / 2 };
     }
@@ -67,7 +68,20 @@ const OnboardingContent = ({
     const spaceAbove = y;
     const spaceBelow = SCREEN_HEIGHT - (y + height);
     
-    // Determine best position
+    // If a specific position is preferred, try to use it if there's enough space
+    if (preferred === 'below' && spaceBelow >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN) {
+      return { 
+        top: y + height + CONTENT_MARGIN,
+        alignment: 'below'
+      };
+    } else if (preferred === 'above' && spaceAbove >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN) {
+      return { 
+        top: y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN,
+        alignment: 'above'
+      };
+    }
+    
+    // Otherwise, determine best position automatically
     if (spaceBelow >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN * 2) {
       // Enough space below
       return { 

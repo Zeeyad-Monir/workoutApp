@@ -18,7 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Header, Button } from '../components';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import onboardingService from '../services/onboardingService';
+import { useOnboarding } from '../hooks/useOnboarding';
 
 import { db } from '../firebase';
 import {
@@ -58,6 +58,7 @@ const colors = {
 export default function ActiveCompetitionsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user } = useContext(AuthContext);
+  const { registerTarget } = useOnboarding();
 
   /* ---------------- tab state ------------------ */
   const [activeTab, setActiveTab] = useState('active');
@@ -834,7 +835,7 @@ const handleCompetitionPress = async (competition) => {
 
         <View 
           style={styles.topNavContainer}
-          onLayout={(e) => onboardingService.registerTarget('competition-tabs', e)}
+          onLayout={(e) => registerTarget('competition-tabs', e)}
         >
           {/* Tab row with 3 equal columns */}
           <View style={styles.tabRow}>
@@ -977,7 +978,7 @@ const handleCompetitionPress = async (competition) => {
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 60 }}
-          onLayout={(e) => onboardingService.registerTarget('competition-card-area', e)}
+          onLayout={(e) => registerTarget('competition-card-area', e)}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

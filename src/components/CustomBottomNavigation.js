@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TabBarItem from './navigation/TabBarItem';
 import TabBarDivider from './navigation/TabBarDivider';
 import { NavigationTheme } from '../constants/navigationTheme';
-import onboardingService from '../services/onboardingService';
+import { useOnboarding } from '../hooks/useOnboarding';
 
 const CustomBottomNavigation = ({ 
   state, 
@@ -18,6 +18,7 @@ const CustomBottomNavigation = ({
   ...props 
 }) => {
   const insets = useSafeAreaInsets();
+  const { registerTarget } = useOnboarding();
   
   const effectiveBottomPadding = Math.max(
     insets.bottom + NavigationTheme.spacing.safeAreaMinGap,
@@ -62,7 +63,7 @@ const CustomBottomNavigation = ({
         },
         Platform.OS === 'ios' && NavigationTheme.shadow.ios,
       ]}
-      onLayout={(e) => onboardingService.registerTarget('bottom-navigation', e)}
+      onLayout={(e) => registerTarget('bottom-navigation', e)}
     >
       <TabBarDivider />
       
@@ -123,7 +124,7 @@ const CustomBottomNavigation = ({
               onLayout={(e) => {
                 const tabId = getTabId(route.name);
                 if (tabId) {
-                  onboardingService.registerTarget(tabId, e);
+                  registerTarget(tabId, e);
                 }
               }}
             />

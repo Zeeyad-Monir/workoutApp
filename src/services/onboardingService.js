@@ -5,10 +5,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const ONBOARDING_COMPLETED_KEY_PREFIX = 'onboarding_completed_v1';
 
 class OnboardingService {
-  constructor() {
-    this.targetMeasurements = new Map();
-  }
-
   // Helper to get user-specific key
   getUserOnboardingKey(userId) {
     if (!userId) {
@@ -63,19 +59,6 @@ class OnboardingService {
     } catch (error) {
       console.error('Error resetting onboarding:', error);
     }
-  }
-
-  registerTarget(id, layout) {
-    const { x, y, width, height } = layout.nativeEvent.layout;
-    this.targetMeasurements.set(id, { x, y, width, height });
-  }
-
-  getTargetMeasurements(id) {
-    return this.targetMeasurements.get(id);
-  }
-
-  clearTargets() {
-    this.targetMeasurements.clear();
   }
 }
 

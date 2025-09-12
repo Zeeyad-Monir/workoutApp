@@ -90,7 +90,19 @@ export const OnboardingProvider = ({ children }) => {
     setCurrentStep(0);
   };
 
-  const registerTarget = (id, measurements) => {
+  const registerTarget = (id, event) => {
+    // Handle both direct measurements and event objects
+    let measurements;
+    if (event && event.nativeEvent && event.nativeEvent.layout) {
+      measurements = event.nativeEvent.layout;
+    } else if (event && typeof event === 'object' && 'x' in event) {
+      measurements = event;
+    } else {
+      console.warn(`Invalid measurements for target ${id}:`, event);
+      return;
+    }
+    
+    console.log(`Registering target ${id} with measurements:`, measurements);
     setTargetMeasurements(prev => ({
       ...prev,
       [id]: measurements
@@ -98,6 +110,7 @@ export const OnboardingProvider = ({ children }) => {
   };
 
   const getTargetMeasurements = (id) => {
+    console.log(`Getting measurements for ${id}, available targets:`, Object.keys(targetMeasurements));
     return targetMeasurements[id] || null;
   };
 

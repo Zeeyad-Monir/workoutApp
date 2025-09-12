@@ -6,6 +6,7 @@ export const ONBOARDING_STEPS = [
     targetId: 'bottom-navigation',
     spotlightShape: 'rectangle',
     spotlightPadding: 12,
+    preferredPosition: 'above', // Show card above bottom navigation
   },
   {
     id: 'competitions',
@@ -14,6 +15,7 @@ export const ONBOARDING_STEPS = [
     targetId: 'competition-tabs',
     spotlightShape: 'rectangle',
     spotlightPadding: 8,
+    preferredPosition: 'below', // Show card below tabs
   },
   {
     id: 'create',
@@ -22,6 +24,7 @@ export const ONBOARDING_STEPS = [
     targetId: 'create-tab',
     spotlightShape: 'circle',
     spotlightRadius: 35,
+    preferredPosition: 'above', // Show card above the create button
   },
   {
     id: 'submit',
@@ -30,6 +33,7 @@ export const ONBOARDING_STEPS = [
     targetId: 'competition-card-area',
     spotlightShape: 'rectangle',
     spotlightPadding: 15,
+    preferredPosition: 'below', // Show card below competition card
   },
   {
     id: 'leaderboard',
@@ -38,6 +42,7 @@ export const ONBOARDING_STEPS = [
     targetId: 'competition-card-area',
     spotlightShape: 'rectangle',
     spotlightPadding: 15,
+    preferredPosition: 'below', // Show card below competition card
   },
   {
     id: 'profile',
@@ -46,5 +51,6 @@ export const ONBOARDING_STEPS = [
     targetId: 'profile-tab',
     spotlightShape: 'circle',
     spotlightRadius: 35,
+    preferredPosition: 'above', // Show card above profile button
   },
 ];

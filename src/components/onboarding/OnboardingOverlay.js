@@ -46,6 +46,11 @@ const OnboardingOverlay = () => {
   }
 
   const targetMeasurements = getTargetMeasurements(currentStepData.targetId);
+  
+  // Debug logging
+  if (currentStepData) {
+    console.log(`OnboardingOverlay: Looking for target ${currentStepData.targetId}, found:`, targetMeasurements);
+  }
 
   return (
     <Modal
@@ -77,6 +82,7 @@ const OnboardingOverlay = () => {
           onSkip={skipOnboarding}
           isLastStep={currentStep === totalSteps - 1}
           targetMeasurements={targetMeasurements}
+          preferredPosition={currentStepData.preferredPosition}
         />
 
         {/* Progress indicator */}
