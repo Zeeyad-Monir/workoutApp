@@ -55,14 +55,19 @@ const OnboardingProgress = ({ currentStep, totalSteps }) => {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 50,
+    bottom: 30,
     width: SCREEN_WIDTH,
     alignItems: 'center',
+    zIndex: 999, // Below content card (1000)
   },
   dotsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   dot: {
     marginHorizontal: 6,

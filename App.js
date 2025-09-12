@@ -6,7 +6,7 @@ import AppNavigator   from './src/navigation/AppNavigator';
 import AuthNavigator  from './src/navigation/AuthNavigator';
 import { AuthProvider, AuthContext } from './src/contexts/AuthContext';
 import notificationService from './src/services/notificationService';
-import { OnboardingProvider } from './src/components/onboarding/OnboardingController';
+import { OnboardingProvider, OnboardingContext } from './src/components/onboarding/OnboardingController';
 import OnboardingOverlay from './src/components/onboarding/OnboardingOverlay';
 
 /**
@@ -41,8 +41,9 @@ export default function App() {
  * @returns {JSX.Element} Either AppNavigator (for authenticated users) or AuthNavigator (for unauthenticated users)
  */
 function RootNavigator({ navigationRef }) {
-  // Get the current user from the authentication context
-  const { user } = useContext(AuthContext);
+  // Get the current user and new signup flag from the authentication context
+  const { user, isNewSignup } = useContext(AuthContext);
+  const { startOnboarding } = useContext(OnboardingContext);
   
   // Set up push notifications when user is authenticated
   useEffect(() => {
@@ -54,13 +55,22 @@ function RootNavigator({ navigationRef }) {
       if (navigationRef.current) {
         notificationService.setupNotificationListeners(navigationRef.current);
       }
+      
+      // Failsafe: Check if this is a brand new signup
+      if (isNewSignup) {
+        console.log('RootNavigator: New signup detected - ensuring onboarding starts');
+        // Give a moment for navigation to settle
+        setTimeout(() => {
+          startOnboarding();
+        }, 800);
+      }
     }
     
     // Cleanup listeners on unmount
     return () => {
       notificationService.removeNotificationListeners();
     };
-  }, [user, navigationRef]);
+  }, [user, isNewSignup, navigationRef]);
   
   // If user is authenticated, show the main app navigator
   // Otherwise, show the authentication navigator (login/signup screens)

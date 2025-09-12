@@ -4,12 +4,13 @@
  * Handles navigation between Home, Create Competition, and Profile sections
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useContext } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import CustomBottomNavigation from '../components/CustomBottomNavigation';
 import { useOnboarding } from '../hooks/useOnboarding';
 import onboardingService from '../services/onboardingService';
+import { AuthContext } from '../contexts/AuthContext';
 
 // Import all screen components used in the authenticated app flow
 import {
@@ -87,21 +88,57 @@ const ProfileStack = () => (
  */
 const AppNavigator = () => {
   const { startOnboarding } = useOnboarding();
+  const { isNewSignup, clearNewSignupFlag, user } = useContext(AuthContext);
+  const hasStartedOnboarding = useRef(false);
+  const lastUserId = useRef(null);
 
   useEffect(() => {
+    // Reset the flag when user changes (new login/signup)
+    if (user?.uid !== lastUserId.current) {
+      console.log(`User changed from ${lastUserId.current} to ${user?.uid}, resetting onboarding flag`);
+      hasStartedOnboarding.current = false;
+      lastUserId.current = user?.uid;
+    }
+
     // Check and start onboarding for users who haven't seen it
     const initOnboarding = async () => {
-      const hasCompleted = await onboardingService.hasCompletedOnboarding();
-      if (!hasCompleted) {
-        // Delay to ensure navigation and all components are ready
+      // Prevent multiple onboarding starts for the same user
+      if (hasStartedOnboarding.current) {
+        console.log('Onboarding already initiated for this user, skipping');
+        return;
+      }
+
+      // Check if this is a new signup first (highest priority)
+      if (isNewSignup && user?.uid) {
+        console.log(`New signup detected for user ${user.uid} - starting onboarding immediately`);
+        hasStartedOnboarding.current = true;
+        // Slight delay to ensure all components are mounted
         setTimeout(() => {
-          console.log('Starting onboarding for user');
           startOnboarding();
-        }, 1000);
+          // Clear the flag after starting onboarding
+          clearNewSignupFlag();
+        }, 500);
+        return;
+      }
+      
+      // For existing users, check if they've completed onboarding
+      if (user?.uid) {
+        const hasCompleted = await onboardingService.hasCompletedOnboarding(user.uid);
+        console.log(`User ${user.uid} onboarding status:`, hasCompleted ? 'completed' : 'not completed');
+        
+        if (!hasCompleted && !hasStartedOnboarding.current) {
+          hasStartedOnboarding.current = true;
+          // Delay to ensure navigation and all components are ready
+          setTimeout(() => {
+            console.log(`Starting onboarding for existing user ${user.uid} who hasnt seen it`);
+            startOnboarding();
+          }, 1000);
+        }
       }
     };
+    
     initOnboarding();
-  }, []); // Run once when AppNavigator mounts
+  }, [isNewSignup, user]); // Re-run when isNewSignup or user changes
 
   return (
     <Tab.Navigator

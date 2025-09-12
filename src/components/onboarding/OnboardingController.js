@@ -2,8 +2,9 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { Dimensions } from 'react-native';
 import onboardingService from '../../services/onboardingService';
 import { ONBOARDING_STEPS } from './onboardingSteps';
+import { AuthContext } from '../../contexts/AuthContext';
 
-const OnboardingContext = createContext();
+export const OnboardingContext = createContext();
 
 export const useOnboarding = () => {
   const context = useContext(OnboardingContext);
@@ -17,6 +18,7 @@ export const OnboardingProvider = ({ children }) => {
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [targetMeasurements, setTargetMeasurements] = useState({});
+  const { user } = useContext(AuthContext);
 
   const startOnboarding = async (forceStart = false) => {
     // Don't start if already active
@@ -34,13 +36,19 @@ export const OnboardingProvider = ({ children }) => {
     }
     
     // Otherwise check completion status as normal
-    const hasCompleted = await onboardingService.hasCompletedOnboarding();
+    const userId = user?.uid;
+    if (!userId) {
+      console.log('No user ID available for onboarding check');
+      return;
+    }
+    
+    const hasCompleted = await onboardingService.hasCompletedOnboarding(userId);
     if (!hasCompleted) {
-      console.log('Starting onboarding tutorial for user');
+      console.log(`Starting onboarding tutorial for user ${userId}`);
       setIsActive(true);
       setCurrentStep(0);
     } else {
-      console.log('User has already completed onboarding');
+      console.log(`User ${userId} has already completed onboarding`);
     }
   };
 
@@ -59,15 +67,25 @@ export const OnboardingProvider = ({ children }) => {
   };
 
   const skipOnboarding = async () => {
-    console.log('User skipped onboarding');
-    await onboardingService.completeOnboarding(); // Mark as complete even when skipped
+    const userId = user?.uid;
+    if (!userId) {
+      console.error('Cannot skip onboarding without user ID');
+      return;
+    }
+    console.log(`User ${userId} skipped onboarding`);
+    await onboardingService.completeOnboarding(userId); // Mark as complete even when skipped
     setIsActive(false);
     setCurrentStep(0);
   };
 
   const completeOnboarding = async () => {
-    console.log('User completed onboarding');
-    await onboardingService.completeOnboarding();
+    const userId = user?.uid;
+    if (!userId) {
+      console.error('Cannot complete onboarding without user ID');
+      return;
+    }
+    console.log(`User ${userId} completed onboarding`);
+    await onboardingService.completeOnboarding(userId);
     setIsActive(false);
     setCurrentStep(0);
   };

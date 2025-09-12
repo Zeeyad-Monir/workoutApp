@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,12 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CONTENT_MARGIN = 20;
+const ESTIMATED_CONTENT_HEIGHT = 180;
 
 const OnboardingContent = ({
   title,
@@ -20,17 +21,26 @@ const OnboardingContent = ({
   onSkip,
   isLastStep,
   targetMeasurements,
-  position = 'below',
 }) => {
-  const slideAnim = useRef(new Animated.Value(50)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [position, setPosition] = useState({ top: SCREEN_HEIGHT / 2 - 100 });
 
   useEffect(() => {
-    // Reset animation values
-    slideAnim.setValue(50);
+    // Calculate optimal position based on target
+    if (targetMeasurements) {
+      const optimalPos = calculateOptimalPosition(targetMeasurements);
+      setPosition(optimalPos);
+    } else {
+      // Center if no target
+      setPosition({ top: SCREEN_HEIGHT / 2 - ESTIMATED_CONTENT_HEIGHT / 2 });
+    }
+    
+    // Reset animations
+    slideAnim.setValue(30);
     fadeAnim.setValue(0);
     
-    // Slide up animation
+    // Animate in
     Animated.parallel([
       Animated.spring(slideAnim, {
         toValue: 0,
@@ -44,7 +54,47 @@ const OnboardingContent = ({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [title]); // Re-animate on step change
+  }, [targetMeasurements, title]);
+
+  const calculateOptimalPosition = (measurements) => {
+    if (!measurements) {
+      return { top: SCREEN_HEIGHT / 2 - ESTIMATED_CONTENT_HEIGHT / 2 };
+    }
+
+    const { y, height } = measurements;
+    
+    // Calculate available spaces
+    const spaceAbove = y;
+    const spaceBelow = SCREEN_HEIGHT - (y + height);
+    
+    // Determine best position
+    if (spaceBelow >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN * 2) {
+      // Enough space below
+      return { 
+        top: y + height + CONTENT_MARGIN,
+        alignment: 'below'
+      };
+    } else if (spaceAbove >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN * 2) {
+      // Enough space above
+      return { 
+        top: y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN,
+        alignment: 'above'
+      };
+    } else {
+      // Not enough space, position in largest available area
+      if (spaceAbove > spaceBelow) {
+        return { 
+          top: Math.max(CONTENT_MARGIN, y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN),
+          alignment: 'above'
+        };
+      } else {
+        return { 
+          top: Math.min(y + height + CONTENT_MARGIN, SCREEN_HEIGHT - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN),
+          alignment: 'below'
+        };
+      }
+    }
+  };
 
   const handleNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -56,62 +106,58 @@ const OnboardingContent = ({
     onSkip();
   };
 
-  // Calculate position based on target
-  let topPosition = '50%';
-  if (targetMeasurements && position !== 'center') {
-    const { y, height } = targetMeasurements;
-    if (position === 'above') {
-      topPosition = y - 200; // Position above target
-    } else if (position === 'below') {
-      topPosition = y + height + 40; // Position below target
-    }
-  }
-
   return (
     <Animated.View
       style={[
         styles.container,
         {
-          top: topPosition,
+          top: position.top,
           opacity: fadeAnim,
           transform: [{ translateY: slideAnim }],
         },
       ]}
+      pointerEvents="box-none"
     >
-      <BlurView intensity={80} tint="light" style={styles.blurContainer}>
-        <View style={styles.content}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.description}>{description}</Text>
-          
-          <View style={styles.buttonContainer}>
-            {!isLastStep && (
-              <TouchableOpacity
-                style={styles.skipButton}
-                onPress={handleSkip}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.skipText}>Skip</Text>
-              </TouchableOpacity>
-            )}
-            
+      <View style={styles.card}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.description}>{description}</Text>
+        
+        <View style={styles.buttonContainer}>
+          {!isLastStep && (
             <TouchableOpacity
-              style={styles.nextButton}
-              onPress={handleNext}
-              activeOpacity={0.8}
+              style={styles.skipButton}
+              onPress={handleSkip}
+              activeOpacity={0.7}
             >
-              <Text style={styles.nextText}>
-                {isLastStep ? "Let's Go!" : 'Next'}
-              </Text>
-              <Ionicons 
-                name={isLastStep ? 'checkmark' : 'arrow-forward'} 
-                size={20} 
-                color="#FFFFFF" 
-                style={styles.icon}
-              />
+              <Text style={styles.skipText}>Skip</Text>
             </TouchableOpacity>
-          </View>
+          )}
+          
+          <TouchableOpacity
+            style={styles.nextButton}
+            onPress={handleNext}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.nextText}>
+              {isLastStep ? "Let's Go!" : 'Next'}
+            </Text>
+            <Ionicons 
+              name={isLastStep ? 'checkmark' : 'arrow-forward'} 
+              size={20} 
+              color="#FFFFFF" 
+              style={styles.icon}
+            />
+          </TouchableOpacity>
         </View>
-      </BlurView>
+        
+        {/* Optional arrow pointing to target */}
+        {position.alignment && targetMeasurements && (
+          <View style={[
+            styles.arrow,
+            position.alignment === 'above' ? styles.arrowDown : styles.arrowUp,
+          ]} />
+        )}
+      </View>
     </Animated.View>
   );
 };
@@ -119,29 +165,31 @@ const OnboardingContent = ({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    width: SCREEN_WIDTH - 40,
-    alignSelf: 'center',
+    left: CONTENT_MARGIN,
+    right: CONTENT_MARGIN,
+    zIndex: 1000,
   },
-  blurContainer: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  content: {
-    padding: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#111111',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   description: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#444444',
     lineHeight: 22,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -149,35 +197,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   skipButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   skipText: {
     color: '#666666',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
   },
   nextButton: {
     backgroundColor: '#A4D65E',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#A4D65E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
   },
   nextText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    marginRight: 8,
+    marginRight: 6,
   },
   icon: {
-    marginLeft: 4,
+    marginLeft: 2,
+  },
+  arrow: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    borderStyle: 'solid',
+    alignSelf: 'center',
+  },
+  arrowUp: {
+    top: -10,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#FFFFFF',
+  },
+  arrowDown: {
+    bottom: -10,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#FFFFFF',
   },
 });
 

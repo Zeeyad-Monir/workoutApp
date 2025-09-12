@@ -5,8 +5,7 @@ export const ONBOARDING_STEPS = [
     description: 'Let\'s quickly show you around. Compete with friends and track your fitness journey.',
     targetId: 'bottom-navigation',
     spotlightShape: 'rectangle',
-    spotlightPadding: 15,
-    position: 'above',
+    spotlightPadding: 12,
   },
   {
     id: 'competitions',
@@ -14,8 +13,7 @@ export const ONBOARDING_STEPS = [
     description: 'View active competitions, pending invites, and completed challenges all in one place.',
     targetId: 'competition-tabs',
     spotlightShape: 'rectangle',
-    spotlightPadding: 10,
-    position: 'below',
+    spotlightPadding: 8,
   },
   {
     id: 'create',
@@ -24,7 +22,6 @@ export const ONBOARDING_STEPS = [
     targetId: 'create-tab',
     spotlightShape: 'circle',
     spotlightRadius: 35,
-    position: 'above',
   },
   {
     id: 'submit',
@@ -32,8 +29,7 @@ export const ONBOARDING_STEPS = [
     description: 'Submit daily activities, attach photos, and earn points based on competition rules.',
     targetId: 'competition-card-area',
     spotlightShape: 'rectangle',
-    spotlightPadding: 20,
-    position: 'center',
+    spotlightPadding: 15,
   },
   {
     id: 'leaderboard',
@@ -41,8 +37,7 @@ export const ONBOARDING_STEPS = [
     description: 'See how you stack up against friends. Some competitions hide scores for extra suspense!',
     targetId: 'competition-card-area',
     spotlightShape: 'rectangle',
-    spotlightPadding: 20,
-    position: 'center',
+    spotlightPadding: 15,
   },
   {
     id: 'profile',
@@ -51,6 +46,5 @@ export const ONBOARDING_STEPS = [
     targetId: 'profile-tab',
     spotlightShape: 'circle',
     spotlightRadius: 35,
-    position: 'above',
   },
 ];

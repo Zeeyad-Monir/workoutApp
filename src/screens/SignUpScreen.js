@@ -1,5 +1,5 @@
 // src/screens/SignUpScreen.js
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,10 @@ import {
 import { auth, db, createUserWithEmailAndPassword, updateProfile } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
+import { AuthContext } from '../contexts/AuthContext';
 
 export default function SignUpScreen({ navigation }) {
+  const { setIsNewSignup } = useContext(AuthContext);
   const [username,      setUsername]      = useState('');
   const [email,         setEmail]         = useState('');
   const [pass1,         setPass1]         = useState('');
@@ -111,6 +113,10 @@ export default function SignUpScreen({ navigation }) {
       await setDoc(doc(db, 'usernames', trimmedUsername.toLowerCase()), {
         uid: cred.user.uid,
       });
+
+      // 6. Set the new signup flag for onboarding
+      console.log('Setting new signup flag for onboarding');
+      setIsNewSignup(true);
 
       // User is now signed in, and the app will navigate to the home stack automatically.
 
