@@ -58,7 +58,7 @@ const colors = {
 export default function ActiveCompetitionsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user } = useContext(AuthContext);
-  const { registerTarget } = useOnboarding();
+  const { registerTarget, setHasActiveCompetitions } = useOnboarding();
 
   /* ---------------- tab state ------------------ */
   const [activeTab, setActiveTab] = useState('active');
@@ -390,6 +390,19 @@ export default function ActiveCompetitionsScreen({ navigation }) {
       }
     };
   }, [user, removedCompetitions]);
+
+  // Update onboarding context when active competitions change
+  useEffect(() => {
+    if (setHasActiveCompetitions) {
+      const hasActive = activeCompetitions.some(comp => {
+        const now = new Date();
+        const startDate = new Date(comp.startDate);
+        const endDate = new Date(comp.endDate);
+        return now >= startDate && now <= endDate && comp.status !== 'completed' && comp.status !== 'cancelled';
+      });
+      setHasActiveCompetitions(hasActive);
+    }
+  }, [activeCompetitions, setHasActiveCompetitions]);
 
   /* ---------------- competition status helpers ---------- */
   const isCompetitionCancelled = (competition) => {

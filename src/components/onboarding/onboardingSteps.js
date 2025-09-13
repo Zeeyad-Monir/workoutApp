@@ -31,6 +31,8 @@ export const ONBOARDING_STEPS = [
     title: 'Track Your Workouts',
     description: 'Submit daily activities, attach photos, and earn points based on competition rules.',
     targetId: 'competition-card-area',
+    mockElement: 'submission-card',
+    requiresActiveCompetition: true,
     spotlightShape: 'rectangle',
     spotlightPadding: 15,
     preferredPosition: 'below', // Show card below competition card
@@ -40,6 +42,8 @@ export const ONBOARDING_STEPS = [
     title: 'Check Your Ranking',
     description: 'See how you stack up against friends. Some competitions hide scores for extra suspense!',
     targetId: 'competition-card-area',
+    mockElement: 'leaderboard-view',
+    requiresActiveCompetition: true,
     spotlightShape: 'rectangle',
     spotlightPadding: 15,
     preferredPosition: 'below', // Show card below competition card

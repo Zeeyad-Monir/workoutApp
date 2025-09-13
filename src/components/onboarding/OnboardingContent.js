@@ -22,6 +22,7 @@ const OnboardingContent = ({
   isLastStep,
   targetMeasurements,
   preferredPosition = 'auto',
+  spotlightPadding = 0,
 }) => {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -63,47 +64,48 @@ const OnboardingContent = ({
     }
 
     const { y, height } = measurements;
+    const SAFE_GAP = CONTENT_MARGIN + Math.max(spotlightPadding, 8); // ensure card never overlaps spotlight
     
     // Calculate available spaces
     const spaceAbove = y;
     const spaceBelow = SCREEN_HEIGHT - (y + height);
     
     // If a specific position is preferred, try to use it if there's enough space
-    if (preferred === 'below' && spaceBelow >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN) {
+    if (preferred === 'below' && spaceBelow >= ESTIMATED_CONTENT_HEIGHT + SAFE_GAP) {
       return { 
-        top: y + height + CONTENT_MARGIN,
+        top: y + height + SAFE_GAP,
         alignment: 'below'
       };
-    } else if (preferred === 'above' && spaceAbove >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN) {
+    } else if (preferred === 'above' && spaceAbove >= ESTIMATED_CONTENT_HEIGHT + SAFE_GAP) {
       return { 
-        top: y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN,
+        top: y - ESTIMATED_CONTENT_HEIGHT - SAFE_GAP,
         alignment: 'above'
       };
     }
     
     // Otherwise, determine best position automatically
-    if (spaceBelow >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN * 2) {
+    if (spaceBelow >= ESTIMATED_CONTENT_HEIGHT + SAFE_GAP) {
       // Enough space below
       return { 
-        top: y + height + CONTENT_MARGIN,
+        top: y + height + SAFE_GAP,
         alignment: 'below'
       };
-    } else if (spaceAbove >= ESTIMATED_CONTENT_HEIGHT + CONTENT_MARGIN * 2) {
+    } else if (spaceAbove >= ESTIMATED_CONTENT_HEIGHT + SAFE_GAP) {
       // Enough space above
       return { 
-        top: y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN,
+        top: y - ESTIMATED_CONTENT_HEIGHT - SAFE_GAP,
         alignment: 'above'
       };
     } else {
       // Not enough space, position in largest available area
       if (spaceAbove > spaceBelow) {
         return { 
-          top: Math.max(CONTENT_MARGIN, y - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN),
+          top: Math.max(CONTENT_MARGIN, y - ESTIMATED_CONTENT_HEIGHT - SAFE_GAP),
           alignment: 'above'
         };
       } else {
         return { 
-          top: Math.min(y + height + CONTENT_MARGIN, SCREEN_HEIGHT - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN),
+          top: Math.min(y + height + SAFE_GAP, SCREEN_HEIGHT - ESTIMATED_CONTENT_HEIGHT - CONTENT_MARGIN),
           alignment: 'below'
         };
       }

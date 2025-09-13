@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { Dimensions } from 'react-native';
+import { UIManager, findNodeHandle } from 'react-native';
 import onboardingService from '../../services/onboardingService';
 import { ONBOARDING_STEPS } from './onboardingSteps';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -18,6 +18,7 @@ export const OnboardingProvider = ({ children }) => {
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [targetMeasurements, setTargetMeasurements] = useState({});
+  const [hasActiveCompetitions, setHasActiveCompetitions] = useState(false);
   const { user } = useContext(AuthContext);
 
   const startOnboarding = async (forceStart = false) => {
@@ -90,23 +91,79 @@ export const OnboardingProvider = ({ children }) => {
     setCurrentStep(0);
   };
 
-  const registerTarget = (id, event) => {
-    // Handle both direct measurements and event objects
-    let measurements;
-    if (event && event.nativeEvent && event.nativeEvent.layout) {
-      measurements = event.nativeEvent.layout;
-    } else if (event && typeof event === 'object' && 'x' in event) {
-      measurements = event;
-    } else {
-      console.warn(`Invalid measurements for target ${id}:`, event);
-      return;
+  const registerTarget = (id, refOrEventOrRect) => {
+    // Supports: ref.current, onLayout event, or direct {x,y,width,height}
+    // Prefer absolute window coordinates via measureInWindow when possible.
+    try {
+      // Direct rect
+      if (
+        refOrEventOrRect &&
+        typeof refOrEventOrRect === 'object' &&
+        'x' in refOrEventOrRect &&
+        'y' in refOrEventOrRect &&
+        'width' in refOrEventOrRect &&
+        'height' in refOrEventOrRect
+      ) {
+        const rect = refOrEventOrRect;
+        console.log(`Registering target ${id} with explicit rect:`, rect);
+        setTargetMeasurements(prev => ({ ...prev, [id]: rect }));
+        return;
+      }
+
+      // onLayout event → try to measure absolute via native handle
+      const isLayoutEvent = !!(refOrEventOrRect && refOrEventOrRect.nativeEvent && refOrEventOrRect.nativeEvent.layout);
+      if (isLayoutEvent) {
+        const evt = refOrEventOrRect;
+        const targetTag = evt.nativeEvent?.target;
+
+        if (targetTag != null) {
+          // Defer measure slightly to ensure layout settled
+          requestAnimationFrame(() => {
+            try {
+              UIManager.measureInWindow(targetTag, (x, y, width, height) => {
+                const rect = { x, y, width, height };
+                console.log(`Registering target ${id} (measured in window from event):`, rect);
+                setTargetMeasurements(prev => ({ ...prev, [id]: rect }));
+              });
+            } catch (err) {
+              console.warn(`measureInWindow failed for ${id} from event; falling back to layout`, err);
+              const { x, y, width, height } = evt.nativeEvent.layout;
+              setTargetMeasurements(prev => ({ ...prev, [id]: { x, y, width, height } }));
+            }
+          });
+          return;
+        }
+
+        // Fallback if no target tag is available
+        const { x, y, width, height } = evt.nativeEvent.layout;
+        console.warn(`No native target tag for ${id}; storing relative layout (may be inaccurate)`, evt.nativeEvent.layout);
+        setTargetMeasurements(prev => ({ ...prev, [id]: { x, y, width, height } }));
+        return;
+      }
+
+      // ref.current → measure absolute via handle
+      if (refOrEventOrRect && refOrEventOrRect.current) {
+        const handle = findNodeHandle(refOrEventOrRect.current);
+        if (handle) {
+          requestAnimationFrame(() => {
+            try {
+              UIManager.measureInWindow(handle, (x, y, width, height) => {
+                const rect = { x, y, width, height };
+                console.log(`Registering target ${id} (measured in window from ref):`, rect);
+                setTargetMeasurements(prev => ({ ...prev, [id]: rect }));
+              });
+            } catch (err) {
+              console.warn(`measureInWindow failed for ${id} from ref`, err);
+            }
+          });
+          return;
+        }
+      }
+
+      console.warn(`Invalid target source for ${id}:`, refOrEventOrRect);
+    } catch (error) {
+      console.error(`Error registering target ${id}:`, error);
     }
-    
-    console.log(`Registering target ${id} with measurements:`, measurements);
-    setTargetMeasurements(prev => ({
-      ...prev,
-      [id]: measurements
-    }));
   };
 
   const getTargetMeasurements = (id) => {
@@ -125,6 +182,8 @@ export const OnboardingProvider = ({ children }) => {
     skipOnboarding,
     registerTarget,
     getTargetMeasurements,
+    hasActiveCompetitions,
+    setHasActiveCompetitions,
   };
 
   return (

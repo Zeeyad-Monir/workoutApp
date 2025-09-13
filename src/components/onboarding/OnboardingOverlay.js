@@ -19,6 +19,7 @@ const OnboardingOverlay = () => {
     nextStep,
     skipOnboarding,
     getTargetMeasurements,
+    hasActiveCompetitions,
   } = useOnboarding();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -47,6 +48,14 @@ const OnboardingOverlay = () => {
 
   const targetMeasurements = getTargetMeasurements(currentStepData.targetId);
   
+  // Determine if we should show mock element
+  const shouldShowMock = () => {
+    if (!currentStepData.requiresActiveCompetition) return false;
+    
+    // Show mock if no active competitions or if target measurements not found
+    return !hasActiveCompetitions || !targetMeasurements;
+  };
+  
   // Debug logging
   if (currentStepData) {
     console.log(`OnboardingOverlay: Looking for target ${currentStepData.targetId}, found:`, targetMeasurements);
@@ -72,6 +81,8 @@ const OnboardingOverlay = () => {
           shape={currentStepData.spotlightShape}
           padding={currentStepData.spotlightPadding}
           radius={currentStepData.spotlightRadius}
+          mockElement={currentStepData.mockElement}
+          showMock={shouldShowMock()}
         />
 
         {/* Content card with smart positioning */}
@@ -83,6 +94,7 @@ const OnboardingOverlay = () => {
           isLastStep={currentStep === totalSteps - 1}
           targetMeasurements={targetMeasurements}
           preferredPosition={currentStepData.preferredPosition}
+          spotlightPadding={currentStepData.spotlightPadding}
         />
 
         {/* Progress indicator */}

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, StyleSheet, Dimensions } from 'react-native';
+import Svg, { Defs, Mask, Rect, Circle } from 'react-native-svg';
+import OnboardingMockElement from './OnboardingMockElement';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const OnboardingSpotlight = ({ measurements, shape, padding = 10, radius = 30 }) => {
+const OnboardingSpotlight = ({ measurements, shape, padding = 10, radius = 30, mockElement, showMock }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
@@ -26,88 +28,96 @@ const OnboardingSpotlight = ({ measurements, shape, padding = 10, radius = 30 })
 
   if (!measurements) {
     // Full overlay when no target
-    return <View style={styles.fullOverlay} pointerEvents="box-none" />;
+    return <View style={styles.fullOverlay} pointerEvents="auto" />;
   }
 
   const { x, y, width, height } = measurements;
-  
-  // Calculate cutout area with padding
-  const cutoutX = Math.max(0, x - padding);
-  const cutoutY = Math.max(0, y - padding);
-  const cutoutWidth = Math.min(width + padding * 2, SCREEN_WIDTH - cutoutX);
-  const cutoutHeight = Math.min(height + padding * 2, SCREEN_HEIGHT - cutoutY);
+
+  // Calculate cutout area with padding. For circles, compute a square around the center using radius.
+  let cutoutX, cutoutY, cutoutWidth, cutoutHeight;
+  let cx = x + width / 2;
+  let cy = y + height / 2;
+  let r = (radius || Math.max(width, height) / 2) + padding;
+  if (shape === 'circle') {
+    const left = cx - r;
+    const top = cy - r;
+    cutoutX = Math.max(0, left);
+    cutoutY = Math.max(0, top);
+    cutoutWidth = Math.min(2 * r, SCREEN_WIDTH - cutoutX);
+    cutoutHeight = Math.min(2 * r, SCREEN_HEIGHT - cutoutY);
+  } else {
+    cutoutX = Math.max(0, x - padding);
+    cutoutY = Math.max(0, y - padding);
+    cutoutWidth = Math.min(width + padding * 2, SCREEN_WIDTH - cutoutX);
+    cutoutHeight = Math.min(height + padding * 2, SCREEN_HEIGHT - cutoutY);
+  }
   const cutoutRight = cutoutX + cutoutWidth;
   const cutoutBottom = cutoutY + cutoutHeight;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Top overlay section */}
-      <View 
-        style={[
-          styles.overlaySection,
-          {
-            top: 0,
-            left: 0,
-            right: 0,
-            height: cutoutY,
-          }
-        ]}
+      {/* SVG Mask for creating cutout */}
+      <Svg 
+        width={SCREEN_WIDTH} 
+        height={SCREEN_HEIGHT} 
+        style={StyleSheet.absoluteFillObject}
         pointerEvents="auto"
-      />
-      
-      {/* Bottom overlay section */}
-      <View 
-        style={[
-          styles.overlaySection,
-          {
-            top: cutoutBottom,
-            left: 0,
-            right: 0,
-            bottom: 0,
-          }
-        ]}
-        pointerEvents="auto"
-      />
-      
-      {/* Left overlay section */}
-      <View 
-        style={[
-          styles.overlaySection,
-          {
-            top: cutoutY,
-            left: 0,
-            width: cutoutX,
-            height: cutoutHeight,
-          }
-        ]}
-        pointerEvents="auto"
-      />
-      
-      {/* Right overlay section */}
-      <View 
-        style={[
-          styles.overlaySection,
-          {
-            top: cutoutY,
-            left: cutoutRight,
-            right: 0,
-            height: cutoutHeight,
-          }
-        ]}
-        pointerEvents="auto"
-      />
-      
-      {/* Highlight border around cutout */}
+      >
+        <Defs>
+          <Mask id="spotlight-mask">
+            {/* White rectangle fills entire screen */}
+            <Rect x="0" y="0" width={SCREEN_WIDTH} height={SCREEN_HEIGHT} fill="white" />
+            {/* Black shape creates the hole */}
+            {shape === 'circle' ? (
+              <Circle 
+                cx={cx} 
+                cy={cy} 
+                r={r} 
+                fill="black" 
+              />
+            ) : (
+              <Rect 
+                x={cutoutX} 
+                y={cutoutY} 
+                width={cutoutWidth} 
+                height={cutoutHeight} 
+                rx={12} 
+                ry={12}
+                fill="black" 
+              />
+            )}
+          </Mask>
+        </Defs>
+        {/* Dark overlay with mask applied */}
+        <Rect 
+          x="0" 
+          y="0" 
+          width={SCREEN_WIDTH} 
+          height={SCREEN_HEIGHT} 
+          fill="rgba(0, 0, 0, 0.85)" 
+          mask="url(#spotlight-mask)" 
+        />
+      </Svg>
+
+      {/* Mock element if needed */}
+      {showMock && mockElement && (
+        <OnboardingMockElement 
+          type={mockElement}
+          measurements={measurements}
+        />
+      )}
+
+      {/* Highlight ring on top (no background white square) */}
       <Animated.View
         style={[
           styles.highlightBorder,
           {
             position: 'absolute',
-            left: cutoutX - 2,
-            top: cutoutY - 2,
-            width: cutoutWidth + 4,
-            height: cutoutHeight + 4,
-            borderRadius: shape === 'circle' ? (cutoutWidth + 4) / 2 : 12,
+            left: shape === 'circle' ? cx - (r + 2) : cutoutX - 2,
+            top: shape === 'circle' ? cy - (r + 2) : cutoutY - 2,
+            width: shape === 'circle' ? (r + 2) * 2 : cutoutWidth + 4,
+            height: shape === 'circle' ? (r + 2) * 2 : cutoutHeight + 4,
+            borderRadius: shape === 'circle' ? (r + 2) : 12,
             transform: [{ scale: pulseAnim }],
           }
         ]}
@@ -130,6 +140,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#B6DB78',
     backgroundColor: 'transparent',
+    // subtle glow
+    shadowColor: '#B6DB78',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
 });
 
