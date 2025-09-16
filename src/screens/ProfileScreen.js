@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -40,6 +40,9 @@ import {
 import { signOut } from 'firebase/auth';
 import { useOnboarding } from '../components/onboarding/OnboardingController';
 import onboardingService from '../services/onboardingService';
+import {
+  computeFriendGroupRanking,
+} from '../utils/bprRanking';
 
 // Import new stats components
 import AnimatedProgressRing from '../components/stats/AnimatedProgressRing';
@@ -172,7 +175,13 @@ export default function ProfileScreen({ route, navigation }) {
   // New state for competition stats
   const [currentStreak, setCurrentStreak] = useState(0);
   const [recentCompetitions, setRecentCompetitions] = useState([]);
-  const [globalRank, setGlobalRank] = useState(null);
+  const [friendRankingState, setFriendRankingState] = useState({
+    loading: false,
+    entries: [],
+    userEntry: null,
+    error: null,
+  });
+  const rankingRequestId = useRef(0);
 
   /* ----- Real-time profile subscription with wins/losses ----- */
   useEffect(() => {
@@ -752,6 +761,92 @@ export default function ProfileScreen({ route, navigation }) {
     setCurrentStreak(calculateCurrentStreak());
   }, [recentCompetitions]);
 
+  // Compute friend ranking metrics using Bayesian Placement Rating
+  useEffect(() => {
+    if (!user?.uid) {
+      rankingRequestId.current = 0;
+      setFriendRankingState({
+        loading: false,
+        entries: [],
+        userEntry: null,
+        error: null,
+      });
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadRankings = async () => {
+      const currentRequest = rankingRequestId.current + 1;
+      rankingRequestId.current = currentRequest;
+
+      setFriendRankingState(prev => ({
+        ...prev,
+        loading: true,
+        error: null,
+      }));
+
+      try {
+        const friendIds = profile.friends || [];
+        const rankings = await computeFriendGroupRanking(user.uid, friendIds);
+        if (!isMounted || currentRequest !== rankingRequestId.current) return;
+
+        const friendsMap = new Map();
+        friendsList.forEach(friend => {
+          friendsMap.set(friend.id, {
+            username: friend.username,
+            handle: friend.handle,
+            avatar: friend.avatar,
+          });
+        });
+
+        const decorated = rankings.map(entry => {
+          if (entry.userId === user.uid) {
+            return {
+              ...entry,
+              profile: {
+                username: profile.username,
+                handle: profile.handle,
+              },
+            };
+          }
+          const friendProfile = friendsMap.get(entry.userId) || {};
+          return {
+            ...entry,
+            profile: {
+              username: friendProfile.username || 'Friend',
+              handle: friendProfile.handle || '',
+            },
+          };
+        });
+
+        const userEntry = decorated.find(entry => entry.userId === user.uid) || null;
+
+        setFriendRankingState({
+          loading: false,
+          entries: decorated,
+          userEntry,
+          error: null,
+        });
+      } catch (error) {
+        console.error('Error computing friend rankings:', error);
+        if (!isMounted || currentRequest !== rankingRequestId.current) return;
+        setFriendRankingState({
+          loading: false,
+          entries: [],
+          userEntry: null,
+          error: error.message || 'Unable to compute rankings',
+        });
+      }
+    };
+
+    loadRankings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.uid, profile.username, profile.handle, profile.friends, friendsList]);
+
   // Format last updated time
   const getLastUpdatedText = () => {
     if (!profile.lastUpdated) return null;
@@ -859,7 +954,7 @@ export default function ProfileScreen({ route, navigation }) {
         <CompetitiveRank
           wins={profile.wins}
           losses={profile.losses}
-          globalRank={globalRank}
+          rankingState={friendRankingState}
         />
         
         {profile.lastUpdated && (
