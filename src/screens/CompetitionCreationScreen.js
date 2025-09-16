@@ -1301,67 +1301,73 @@ export default function CompetitionCreationScreen({ navigation }) {
         
         return (
           <View key={`activity-${idx}`} style={[styles.activityCard,{zIndex:z}]}>
-            <Dropdown
-              label="Activity Type"
-              selectedValue={act.type}
-              onValueChange={val=>handleActivityTypeChange(idx, val)}
-              items={availableTypes}
-              priorityItems={['Custom']}
-              containerStyle={{zIndex:z+3}}
-            />
-            
-            {act.type === 'Custom' && (
-              <View style={styles.customActivityContainer}>
-                <FormInput
-                  label="Custom Activity Name"
-                  value={act.customType}
-                  onChangeText={customType=>handleCustomTypeChange(idx, customType)}
-                  placeholder="Enter your custom activity"
-                />
-                <Text style={styles.customActivityHint}>
-                  Examples: Rock Climbing, Parkour, Martial Arts, etc.
-                </Text>
-              </View>
-            )}
+            <View style={styles.activityTypeSection}>
+              <Dropdown
+                label="Activity Type"
+                selectedValue={act.type}
+                onValueChange={val=>handleActivityTypeChange(idx, val)}
+                items={availableTypes}
+                priorityItems={['Custom']}
+                containerStyle={{zIndex:z+3}}
+              />
+              
+              {act.type === 'Custom' && (
+                <View style={styles.customActivityContainer}>
+                  <FormInput
+                    label="Custom Activity Name"
+                    value={act.customType}
+                    onChangeText={customType=>handleCustomTypeChange(idx, customType)}
+                    placeholder="Enter your custom activity"
+                  />
+                  <Text style={styles.customActivityHint}>
+                    Examples: Rock Climbing, Parkour, Martial Arts, etc.
+                  </Text>
+                </View>
+              )}
+            </View>
 
-            <Dropdown
-              label="Measurement Unit"
-              selectedValue={act.unit}
-              onValueChange={unit=>handleUnitChange(idx, unit)}
-              items={universalUnits}
-              priorityItems={['Custom']}
-              containerStyle={{zIndex:z+1}}
-            />
+            <View style={styles.pointConfigSection}>
+              <Text style={styles.pointConfigTitle}>Point System</Text>
 
-            {act.unit === 'Custom' && (
-              <View style={styles.customActivityContainer}>
-                <FormInput
-                  label="Custom Unit Name"
-                  value={act.customUnit}
-                  onChangeText={customUnit=>handleCustomUnitChange(idx, customUnit)}
-                  placeholder="Enter your custom unit"
-                />
-                <Text style={styles.customActivityHint}>
-                  Examples: Laps, Rounds, Lengths, Flights, etc.
-                </Text>
-              </View>
-            )}
+              <Dropdown
+                label="Measurement Unit"
+                selectedValue={act.unit}
+                onValueChange={unit=>handleUnitChange(idx, unit)}
+                items={universalUnits}
+                priorityItems={['Custom']}
+                containerStyle={{zIndex:z+1}}
+              />
 
-            <FormInput
-              label={getPointsLabel(getUnitDisplayName(act))}
-              keyboardType="numeric"
-              value={act.points}
-              onChangeText={p=>updateAct(idx,{points:p})}
-              placeholder={getPointsPlaceholder(getUnitDisplayName(act))}
-            />
+              {act.unit === 'Custom' && (
+                <View style={styles.customActivityContainer}>
+                  <FormInput
+                    label="Custom Unit Name"
+                    value={act.customUnit}
+                    onChangeText={customUnit=>handleCustomUnitChange(idx, customUnit)}
+                    placeholder="Enter your custom unit"
+                  />
+                  <Text style={styles.customActivityHint}>
+                    Examples: Laps, Rounds, Lengths, Flights, etc.
+                  </Text>
+                </View>
+              )}
 
-            <FormInput
-              label={getUnitsLabel(getUnitDisplayName(act))}
-              keyboardType="numeric"
-              value={act.unitsPerPoint}
-              onChangeText={u=>updateAct(idx,{unitsPerPoint:u})}
-              placeholder={getUnitsPlaceholder(getUnitDisplayName(act))}
-            />
+              <FormInput
+                label={getPointsLabel(getUnitDisplayName(act))}
+                keyboardType="numeric"
+                value={act.points}
+                onChangeText={p=>updateAct(idx,{points:p})}
+                placeholder={getPointsPlaceholder(getUnitDisplayName(act))}
+              />
+
+              <FormInput
+                label={getUnitsLabel(getUnitDisplayName(act))}
+                keyboardType="numeric"
+                value={act.unitsPerPoint}
+                onChangeText={u=>updateAct(idx,{unitsPerPoint:u})}
+                placeholder={getUnitsPlaceholder(getUnitDisplayName(act))}
+              />
+            </View>
 
             <View style={styles.activitySummary}>
               <Text style={styles.activitySummaryText}>
@@ -2131,6 +2137,16 @@ const styles = StyleSheet.create({
   activityCard: { backgroundColor: '#FFF', borderRadius: 8, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB' },
   customActivityContainer: { marginTop: 8, marginBottom: 8 },
   customActivityHint: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
+  activityTypeSection: {
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CDE8A2',
+    backgroundColor: '#F6FBEA',
+    marginBottom: 16,
+  },
+  pointConfigSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB' },
+  pointConfigTitle: { fontSize: 13, fontWeight: '600', color: '#4B5563', marginBottom: 12, letterSpacing: 0.2 },
   activitySummary: { backgroundColor: '#F0F9E8', borderRadius: 6, padding: 8, marginTop: 8 },
   activitySummaryText: { fontSize: 14, color: '#1A1E23', textAlign: 'center', fontWeight: '500' },
   trashBtn: { alignSelf: 'flex-end', marginTop: 4 },
