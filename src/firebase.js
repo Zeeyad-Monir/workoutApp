@@ -50,7 +50,11 @@ export const updateEmail = (user, email) => user.updateEmail(email);
 export const reauthenticateWithCredential = (user, credential) => 
   user.reauthenticateWithCredential(credential);
 export const EmailAuthProvider = firebase.auth.EmailAuthProvider;
+export const GoogleAuthProvider = firebase.auth.GoogleAuthProvider;
 export const sendEmailVerification = (user) => user.sendEmailVerification();
+export const signInWithCredential = (credential) => auth.signInWithCredential(credential);
+export const linkWithCredential = (user, credential) => user.linkWithCredential(credential);
+export const fetchSignInMethodsForEmail = (email) => auth.fetchSignInMethodsForEmail(email);
 export const verifyBeforeUpdateEmail = (user, newEmail) => {
   // Check if the method exists in this Firebase version
   if (user.verifyBeforeUpdateEmail && typeof user.verifyBeforeUpdateEmail === 'function') {

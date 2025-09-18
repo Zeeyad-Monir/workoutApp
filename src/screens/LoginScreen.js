@@ -7,9 +7,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  Alert
 } from 'react-native';
-import { auth, signInWithEmailAndPassword } from '../firebase';
+import { auth, signInWithEmailAndPassword, linkWithCredential, GoogleAuthProvider } from '../firebase';
 import { Ionicons } from '@expo/vector-icons';
+import GoogleSignInButton from '../components/GoogleSignInButton';
+import { initiateGoogleSignIn, linkGoogleAccount } from '../services/googleAuth';
 
 export default function LoginScreen({ navigation }) {
   const [email,        setEmail]        = useState('');
@@ -17,6 +20,8 @@ export default function LoginScreen({ navigation }) {
   const [error,        setError]        = useState('');
   const [loading,      setLoading]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [pendingGoogleToken, setPendingGoogleToken] = useState(null);
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -59,6 +64,69 @@ export default function LoginScreen({ navigation }) {
       setLoading(false);
     }
   };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setError('');
+    
+    try {
+      const result = await initiateGoogleSignIn();
+      
+      if (result.success) {
+        // Successfully signed in with Google
+        console.log('Google sign-in successful:', result.user.email);
+        // User will be automatically redirected by AuthContext
+      } else if (result.cancelled) {
+        // User cancelled the sign-in
+        console.log('Google sign-in cancelled');
+      } else if (result.requiresLinking) {
+        // Email exists with password account
+        setPendingGoogleToken(result.googleIdToken);
+        Alert.alert(
+          'Account Already Exists',
+          `An account with ${result.email} already exists with a password. Please sign in with your password first to link your Google account.`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setEmail(result.email);
+                // Focus on password field
+              }
+            }
+          ]
+        );
+      } else if (result.error) {
+        setError('Google sign-in failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Google sign-in error:', error);
+      setError('Failed to sign in with Google. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // If user signed in with password and has pending Google token, link accounts
+  React.useEffect(() => {
+    const linkPendingGoogleAccount = async () => {
+      if (auth.currentUser && pendingGoogleToken) {
+        try {
+          const result = await linkGoogleAccount(pendingGoogleToken);
+          if (result.success) {
+            Alert.alert('Success', 'Google account linked successfully!');
+            setPendingGoogleToken(null);
+          } else {
+            Alert.alert('Error', result.message || 'Failed to link Google account');
+          }
+        } catch (error) {
+          console.error('Error linking account:', error);
+          Alert.alert('Error', 'Failed to link Google account');
+        }
+      }
+    };
+    
+    linkPendingGoogleAccount();
+  }, [auth.currentUser, pendingGoogleToken]);
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
@@ -130,20 +198,28 @@ export default function LoginScreen({ navigation }) {
         <TouchableOpacity 
           onPress={() => navigation.navigate('SignUp')} 
           style={{ marginTop: 18 }}
-          disabled={loading}
+          disabled={loading || googleLoading}
         >
-          <Text style={[styles.switchText, loading && styles.disabledText]}>
+          <Text style={[styles.switchText, (loading || googleLoading) && styles.disabledText]}>
             Don't have an Account? <Text style={styles.switchLink}>Sign up</Text>
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.socialHeading}>or sign up with</Text>
-
-        <View style={styles.socialRow}>
-          <Ionicons name="logo-google"   size={32} color="#A4D65E" style={styles.socialIcon} />
-          <Ionicons name="logo-facebook" size={32} color="#A4D65E" style={styles.socialIcon} />
-          <Ionicons name="finger-print"  size={32} color="#A4D65E" style={styles.socialIcon} />
+        <View style={styles.dividerContainer}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>OR</Text>
+          <View style={styles.divider} />
         </View>
+
+        <GoogleSignInButton 
+          onPress={handleGoogleSignIn}
+          loading={googleLoading}
+          disabled={loading}
+        />
+        
+        <Text style={styles.termsText}>
+          By continuing, you agree to our Terms of Service
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -248,5 +324,26 @@ const styles = StyleSheet.create({
     textAlign: 'center', 
     marginBottom: 10,
     fontSize: 14,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#4A5568',
+  },
+  dividerText: {
+    color: '#9CA3AF',
+    marginHorizontal: 10,
+    fontSize: 14,
+  },
+  termsText: {
+    color: '#9CA3AF',
+    textAlign: 'center',
+    fontSize: 12,
+    marginTop: 16,
   },
 });

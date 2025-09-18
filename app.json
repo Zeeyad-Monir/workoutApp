@@ -8,6 +8,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "owner": "your-expo-username",
+    "scheme": "com.googleusercontent.apps.38275586051-e0adgsng3oamnqacn1455usfu9atn60k",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
